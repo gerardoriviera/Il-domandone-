@@ -1,0 +1,4 @@
+# Il gioco è un sito statico: Netlify pubblica la cartella public/ così com'è.
+[build]
+  publish = "public"
+  command = ""

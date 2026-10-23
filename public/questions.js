@@ -1,6 +1,6 @@
 // Banca domande: ogni domanda ha 1 risposta corretta (`a`) e 4 risposte ingannevoli (`w`).
 // A ogni partita ne vengono estratte 10 a caso e le opzioni vengono mescolate.
-module.exports = [
+window.QUESTIONS = [
   // ---------- ANIME & MANGA ----------
   { q: 'In "One Piece", come si chiama la nave dei Pirati di Cappello di Paglia che sostituisce la Going Merry?',
     a: 'Thousand Sunny', w: ['Moby Dick', 'Oro Jackson', 'Red Force', 'Going Luffy'] },

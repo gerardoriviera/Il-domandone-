@@ -1,7 +1,7 @@
 {
   "name": "il-domandone",
   "version": "1.0.0",
-  "description": "Quiz multigiocatore (fino a 10 giocatori) su anime e videogiochi",
+  "description": "Quiz multigiocatore peer-to-peer (fino a 10 giocatori) su anime e videogiochi",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
