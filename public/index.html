@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Il Domandone</title>
+<style>
+  :root {
+    --bg: #14102b;
+    --bg2: #221a4a;
+    --card: #2b2260;
+    --text: #f4f1ff;
+    --muted: #b3a9e0;
+    --accent: #ffcc33;
+    --good: #2ecc71;
+    --bad: #ff4d6d;
+    --a: #ff4d6d;
+    --b: #3d8bfd;
+    --c: #ffb020;
+    --d: #2ecc71;
+    --e: #b05cff;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--text);
+    background: radial-gradient(1200px 600px at 20% -10%, #3b2a8a 0%, transparent 60%),
+                radial-gradient(900px 500px at 110% 110%, #5a1f6e 0%, transparent 60%),
+                var(--bg);
+    background-attachment: fixed;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1, h2, h3 { margin: 0 0 12px; line-height: 1.2; }
+  .logo { font-size: clamp(2.2rem, 7vw, 3.6rem); font-weight: 900; letter-spacing: -1px; text-align: center; margin: 24px 0 4px; }
+  .logo span { color: var(--accent); }
+  .subtitle { text-align: center; color: var(--muted); margin-bottom: 28px; }
+  .card { background: color-mix(in srgb, var(--card) 85%, transparent); border: 1px solid #ffffff1a; border-radius: var(--radius); padding: 20px; box-shadow: 0 10px 30px #0006; }
+  .stack > * + * { margin-top: 14px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .row > * { flex: 1 1 160px; }
+  label { display: block; font-size: .85rem; color: var(--muted); margin-bottom: 6px; }
+  input {
+    width: 100%; padding: 14px 16px; border-radius: 12px; border: 2px solid #ffffff22;
+    background: #0003; color: var(--text); font-size: 1.1rem; outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  #codeInput { text-transform: uppercase; letter-spacing: 4px; font-weight: 700; }
+  button {
+    font: inherit; font-weight: 700; cursor: pointer; border: 0; border-radius: 12px;
+    padding: 14px 18px; color: #1a1235; background: var(--accent); transition: transform .08s, filter .15s;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.08); }
+  button:active:not(:disabled) { transform: scale(.97); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.ghost { background: #ffffff14; color: var(--text); }
+  .divider { text-align: center; color: var(--muted); font-size: .85rem; margin: 18px 0; }
+  .error { color: var(--bad); min-height: 1.2em; font-weight: 600; }
+  .hidden { display: none !important; }
+
+  /* Lobby */
+  .room-code { font-size: clamp(2.4rem, 10vw, 4rem); font-weight: 900; letter-spacing: 10px; color: var(--accent); text-align: center; }
+  .players { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .player {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: #0003;
+    border: 1px solid #ffffff14; animation: pop .25s ease-out;
+  }
+  .player.offline { opacity: .45; }
+  .avatar { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; color: #1a1235; flex: none; }
+  .player .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag { font-size: .7rem; padding: 2px 6px; border-radius: 6px; background: var(--accent); color: #1a1235; font-weight: 800; margin-left: auto; }
+  .tag.you { background: #ffffff22; color: var(--text); }
+  .muted { color: var(--muted); }
+  .center { text-align: center; }
+  .share { display: flex; gap: 8px; }
+  .share input { font-size: .9rem; padding: 10px 12px; }
+  .share button { flex: none; padding: 10px 14px; }
+
+  /* Domanda */
+  .topbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; color: var(--muted); font-weight: 600; }
+  .timer { height: 10px; border-radius: 99px; background: #ffffff1a; overflow: hidden; margin-bottom: 18px; }
+  .timer > div { height: 100%; width: 100%; background: linear-gradient(90deg, var(--good), var(--accent), var(--bad)); background-size: 300% 100%; transform-origin: left; }
+  .question { font-size: clamp(1.25rem, 3.6vw, 1.75rem); font-weight: 800; text-align: center; padding: 26px 18px; }
+  .answers { display: grid; gap: 10px; margin-top: 16px; }
+  .answer {
+    display: flex; align-items: center; gap: 14px; text-align: left; color: #fff; font-size: 1.05rem;
+    padding: 16px; min-height: 64px; border: 3px solid transparent;
+  }
+  .answer .letter { width: 36px; height: 36px; border-radius: 10px; background: #0003; display: grid; place-items: center; font-weight: 900; flex: none; }
+  .answer:nth-child(1) { background: var(--a); }
+  .answer:nth-child(2) { background: var(--b); }
+  .answer:nth-child(3) { background: var(--c); }
+  .answer:nth-child(4) { background: var(--d); }
+  .answer:nth-child(5) { background: var(--e); }
+  .answer.chosen { border-color: #fff; box-shadow: 0 0 0 4px #ffffff40; }
+  .answer.dim { opacity: .35; }
+  .answer.correct { border-color: #fff; box-shadow: 0 0 0 4px var(--good), 0 0 30px var(--good); opacity: 1; }
+  .answer.wrong { opacity: .35; text-decoration: line-through; }
+  .answer:disabled { cursor: default; opacity: 1; }
+  .answer.dim:disabled, .answer.wrong:disabled { opacity: .35; }
+  .answer .who { margin-left: auto; font-size: .8rem; font-weight: 700; background: #0004; padding: 3px 8px; border-radius: 99px; }
+  .status { text-align: center; margin-top: 16px; min-height: 1.5em; font-weight: 700; }
+  .banner { text-align: center; font-size: 1.5rem; font-weight: 900; padding: 14px; border-radius: 12px; margin-bottom: 14px; animation: pop .3s ease-out; }
+  .banner.good { background: color-mix(in srgb, var(--good) 30%, transparent); }
+  .banner.bad { background: color-mix(in srgb, var(--bad) 30%, transparent); }
+
+  /* Classifica */
+  .board { display: grid; gap: 6px; }
+  .board .line { display: grid; grid-template-columns: 34px 1fr auto auto; gap: 10px; align-items: center; padding: 8px 12px; border-radius: 10px; background: #0003; }
+  .board .line.me { outline: 2px solid var(--accent); }
+  .board .pos { font-weight: 900; color: var(--muted); text-align: center; }
+  .board .pts { font-weight: 900; font-variant-numeric: tabular-nums; }
+  .board .delta { font-size: .85rem; font-weight: 700; color: var(--good); min-width: 60px; text-align: right; }
+  .board .delta.zero { color: var(--muted); }
+
+  /* Countdown & finale */
+  .big { font-size: clamp(4rem, 20vw, 9rem); font-weight: 900; text-align: center; color: var(--accent); animation: pop .4s ease-out; }
+  .podium { display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: end; gap: 10px; margin: 20px 0; }
+  .step { text-align: center; }
+  .step .block { border-radius: 12px 12px 0 0; display: grid; place-items: center; font-size: 2rem; font-weight: 900; color: #1a1235; }
+  .step.p1 .block { height: 150px; background: linear-gradient(#ffe066, #e6a700); }
+  .step.p2 .block { height: 110px; background: linear-gradient(#eef1f5, #a9b3c1); }
+  .step.p3 .block { height: 80px; background: linear-gradient(#f0b27a, #b9692d); }
+  .step .pname { font-weight: 800; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .step .pscore { color: var(--muted); font-size: .9rem; margin-bottom: 6px; }
+  .winner { text-align: center; font-size: clamp(1.4rem, 5vw, 2.2rem); font-weight: 900; }
+  .winner span { color: var(--accent); }
+  @keyframes pop { from { transform: scale(.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .confetti { position: fixed; top: -12px; width: 10px; height: 14px; pointer-events: none; animation: fall linear forwards; z-index: 10; }
+  @keyframes fall { to { transform: translateY(110vh) rotate(720deg); } }
+  @media (min-width: 640px) {
+    .answers { grid-template-columns: 1fr 1fr; }
+    .answers .answer:nth-child(5) { grid-column: 1 / -1; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <!-- HOME -->
+  <section id="home">
+    <div class="logo">Il <span>Domandone</span></div>
+    <div class="subtitle">Quiz multigiocatore su anime e videogiochi · fino a 10 giocatori</div>
+    <div class="card stack">
+      <div>
+        <label for="nameInput">Il tuo nickname</label>
+        <input id="nameInput" maxlength="16" placeholder="Es. SuperSaiyan92" autocomplete="off">
+      </div>
+      <button id="createBtn" style="width:100%">Crea una nuova stanza</button>
+      <div class="divider">— oppure entra in una stanza —</div>
+      <div class="row">
+        <input id="codeInput" maxlength="4" placeholder="CODICE" autocomplete="off">
+        <button id="joinBtn" class="ghost">Entra</button>
+      </div>
+      <div id="homeError" class="error"></div>
+    </div>
+    <p class="center muted" style="margin-top:20px;font-size:.9rem">
+      10 domande · 5 risposte, una sola è giusta · più sei veloce, più punti fai!
+    </p>
+  </section>
+
+  <!-- LOBBY -->
+  <section id="lobby" class="hidden stack">
+    <div class="card stack center">
+      <div class="muted">Codice stanza</div>
+      <div class="room-code" id="lobbyCode">----</div>
+      <div class="share">
+        <input id="shareLink" readonly>
+        <button id="copyBtn" class="ghost">Copia link</button>
+      </div>
+    </div>
+    <div class="card stack">
+      <h3>Giocatori <span id="playerCount" class="muted"></span></h3>
+      <div class="players" id="lobbyPlayers"></div>
+    </div>
+    <div class="card stack center">
+      <button id="startBtn" style="width:100%;font-size:1.2rem">Inizia la partita!</button>
+      <div id="waitHost" class="muted">In attesa che l'host avvii la partita…</div>
+      <button id="leaveBtn" class="ghost">Esci dalla stanza</button>
+      <div id="lobbyError" class="error"></div>
+    </div>
+  </section>
+
+  <!-- COUNTDOWN -->
+  <section id="countdown" class="hidden">
+    <div class="center muted" style="margin-top:12vh;font-size:1.3rem;font-weight:700">Preparati…</div>
+    <div class="big" id="countNum">3</div>
+  </section>
+
+  <!-- DOMANDA / RISPOSTA -->
+  <section id="game" class="hidden">
+    <div class="topbar">
+      <div id="qCounter">Domanda 1/10</div>
+      <div id="qTime">20s</div>
+      <div id="myScore">0 pt</div>
+    </div>
+    <div class="timer"><div id="timerBar"></div></div>
+    <div id="resultBanner" class="banner hidden"></div>
+    <div class="card question" id="qText"></div>
+    <div class="answers" id="answers"></div>
+    <div class="status" id="qStatus"></div>
+    <div id="revealBoard" class="card stack hidden" style="margin-top:16px">
+      <h3>Classifica</h3>
+      <div class="board" id="board"></div>
+    </div>
+  </section>
+
+  <!-- FINALE -->
+  <section id="final" class="hidden stack">
+    <div class="logo" style="font-size:2rem">Fine del <span>round</span>!</div>
+    <div class="winner" id="winnerText"></div>
+    <div class="podium" id="podium"></div>
+    <div class="card stack">
+      <h3>Classifica finale</h3>
+      <div class="board" id="finalBoard"></div>
+    </div>
+    <div class="card stack center">
+      <button id="againBtn" style="width:100%;font-size:1.1rem">Gioca un altro round</button>
+      <button id="toLobbyBtn" class="ghost">Torna alla lobby</button>
+      <div id="finalWait" class="muted">In attesa che l'host avvii un nuovo round…</div>
+      <button id="leaveBtn2" class="ghost">Esci</button>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const LETTERS = ['A', 'B', 'C', 'D', 'E'];
+  const COLORS = ['#ff4d6d', '#3d8bfd', '#ffb020', '#2ecc71', '#b05cff', '#ff7ab6', '#4dd8e6', '#ffe066', '#a3e635', '#f97316'];
+  const SESSION_KEY = 'domandone-session';
+
+  let session = null;   // { room, token }
+  let es = null;        // EventSource
+  let view = null;      // ultimo stato ricevuto
+  let deadline = null;  // performance.now() di fine fase
+  let renderedKey = ''; // evita di ricostruire i bottoni a ogni aggiornamento
+  let celebrated = false;
+
+  // ---------- sessione ----------
+  function loadSession() {
+    try { return JSON.parse(sessionStorage.getItem(SESSION_KEY)); } catch { return null; }
+  }
+  function saveSession(s) {
+    session = s;
+    try {
+      if (s) sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
+      else sessionStorage.removeItem(SESSION_KEY);
+    } catch {}
+  }
+
+  async function post(path, body) {
+    const res = await fetch('/api/' + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...session, ...body }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Errore di rete');
+    return data;
+  }
+
+  function connect() {
+    if (es) es.close();
+    es = new EventSource(`/api/events?room=${encodeURIComponent(session.room)}&token=${encodeURIComponent(session.token)}`);
+    es.onmessage = (e) => onState(JSON.parse(e.data));
+    es.onerror = () => {
+      // risposta non-200: la sessione non esiste più
+      if (es.readyState === EventSource.CLOSED) goHome('La sessione è scaduta o la stanza non esiste più.');
+    };
+  }
+
+  function goHome(msg) {
+    if (es) es.close();
+    es = null;
+    view = null;
+    renderedKey = '';
+    saveSession(null);
+    show('home');
+    $('homeError').textContent = msg || '';
+  }
+
+  // ---------- UI helper ----------
+  function show(id) {
+    for (const s of ['home', 'lobby', 'countdown', 'game', 'final']) $(s).classList.toggle('hidden', s !== id);
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function colorFor(id) {
+    let h = 0;
+    for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return COLORS[h % COLORS.length];
+  }
+  function avatar(p) {
+    return `<div class="avatar" style="background:${colorFor(p.id)}">${esc(p.name[0].toUpperCase())}</div>`;
+  }
+  const me = () => view.players.find((p) => p.id === view.you);
+  const isHost = () => view.hostId === view.you;
+
+  // ---------- render ----------
+  function onState(s) {
+    view = s;
+    deadline = s.remainingMs != null ? performance.now() + s.remainingMs : null;
+    if (s.state !== 'final') celebrated = false;
+    if (s.state === 'lobby') renderLobby();
+    else if (s.state === 'countdown') show('countdown');
+    else if (s.state === 'question' || s.state === 'reveal') renderGame();
+    else if (s.state === 'final') renderFinal();
+  }
+
+  function renderLobby() {
+    show('lobby');
+    renderedKey = '';
+    $('lobbyCode').textContent = view.room;
+    $('shareLink').value = `${location.origin}${location.pathname}?room=${view.room}`;
+    $('playerCount').textContent = `(${view.players.length}/${view.maxPlayers})`;
+    $('lobbyPlayers').innerHTML = view.players.map((p) => `
+      <div class="player ${p.connected ? '' : 'offline'}">
+        ${avatar(p)}<div class="name">${esc(p.name)}</div>
+        ${p.id === view.hostId ? '<span class="tag">HOST</span>' : p.id === view.you ? '<span class="tag you">TU</span>' : ''}
+      </div>`).join('');
+    $('startBtn').classList.toggle('hidden', !isHost());
+    $('waitHost').classList.toggle('hidden', isHost());
+  }
+
+  function renderGame() {
+    show('game');
+    const q = view.question;
+    const key = `${view.room}:${view.qIndex}:${view.state}`;
+    const isReveal = view.state === 'reveal';
+    $('qCounter').textContent = `Domanda ${view.qIndex + 1}/${view.total}`;
+    $('myScore').textContent = `${me().score} pt`;
+
+    if (key !== renderedKey) {
+      renderedKey = key;
+      $('qText').textContent = q.text;
+      $('answers').innerHTML = q.options.map((opt, i) => `
+        <button class="answer" data-i="${i}"><span class="letter">${LETTERS[i]}</span><span>${esc(opt)}</span></button>`).join('');
+      $('answers').querySelectorAll('.answer').forEach((btn) => btn.addEventListener('click', () => answer(Number(btn.dataset.i))));
+    }
+
+    const buttons = [...$('answers').querySelectorAll('.answer')];
+    buttons.forEach((btn, i) => {
+      btn.disabled = view.yourAnswer != null || isReveal;
+      btn.classList.toggle('chosen', view.yourAnswer === i);
+      btn.classList.toggle('dim', !isReveal && view.yourAnswer != null && view.yourAnswer !== i);
+      btn.classList.toggle('correct', isReveal && q.correct === i);
+      btn.classList.toggle('wrong', isReveal && q.correct !== i);
+      btn.querySelector('.who')?.remove();
+      if (isReveal) {
+        const n = view.players.filter((p) => p.lastChoice === i).length;
+        if (n) btn.insertAdjacentHTML('beforeend', `<span class="who">${n} 👤</span>`);
+      }
+    });
+
+    const online = view.players.filter((p) => p.connected);
+    const answered = online.filter((p) => p.answered).length;
+    const banner = $('resultBanner');
+    if (isReveal) {
+      const ok = view.yourAnswer === q.correct;
+      banner.className = `banner ${ok ? 'good' : 'bad'}`;
+      const mine = me();
+      banner.textContent = ok
+        ? `Corretto! +${view.yourPoints} punti (${(mine.lastMs / 1000).toFixed(2)}s)`
+        : view.yourAnswer == null ? 'Tempo scaduto!' : 'Sbagliato!';
+      const fastest = view.players.filter((p) => p.lastPoints > 0).sort((a, b) => a.lastMs - b.lastMs)[0];
+      $('qStatus').textContent = fastest ? `⚡ Il più veloce: ${fastest.name} in ${(fastest.lastMs / 1000).toFixed(2)}s` : 'Nessuno ha indovinato!';
+      $('revealBoard').classList.remove('hidden');
+      renderBoard($('board'), true);
+    } else {
+      banner.className = 'banner hidden';
+      $('revealBoard').classList.add('hidden');
+      $('qStatus').textContent = view.yourAnswer != null
+        ? `Risposta inviata! In attesa degli altri… (${answered}/${online.length})`
+        : `${answered}/${online.length} hanno risposto`;
+    }
+  }
+
+  function renderBoard(el, withDelta) {
+    el.innerHTML = view.players.map((p, i) => `
+      <div class="line ${p.id === view.you ? 'me' : ''}">
+        <div class="pos">${i + 1}</div>
+        <div class="row" style="gap:10px;flex-wrap:nowrap">${avatar(p)}<span class="name">${esc(p.name)}${p.connected ? '' : ' <span class="muted">(offline)</span>'}</span></div>
+        <div class="delta ${p.lastPoints ? '' : 'zero'}">${withDelta ? (p.lastPoints ? '+' + p.lastPoints : '+0') : p.correctCount + '/' + view.total + ' ✓'}</div>
+        <div class="pts">${p.score}</div>
+      </div>`).join('');
+  }
+
+  function renderFinal() {
+    show('final');
+    renderedKey = '';
+    const [p1, p2, p3] = view.players;
+    const tied = view.players.filter((p) => p.score === p1.score);
+    $('winnerText').innerHTML = tied.length > 1
+      ? `🏆 Pareggio tra <span>${tied.map((p) => esc(p.name)).join(', ')}</span>!`
+      : `🏆 Vince <span>${esc(p1.name)}</span> con ${p1.score} punti!`;
+    const step = (p, cls, n) => p
+      ? `<div class="step ${cls}"><div class="pname">${esc(p.name)}</div><div class="pscore">${p.score} pt</div><div class="block">${n}</div></div>`
+      : '<div></div>';
+    $('podium').innerHTML = step(p2, 'p2', 2) + step(p1, 'p1', 1) + step(p3, 'p3', 3);
+    renderBoard($('finalBoard'), false);
+    $('againBtn').classList.toggle('hidden', !isHost());
+    $('toLobbyBtn').classList.toggle('hidden', !isHost());
+    $('finalWait').classList.toggle('hidden', isHost());
+    if (!celebrated) {
+      celebrated = true;
+      confetti();
+    }
+  }
+
+  function confetti() {
+    for (let i = 0; i < 90; i++) {
+      const c = document.createElement('div');
+      c.className = 'confetti';
+      c.style.left = Math.random() * 100 + 'vw';
+      c.style.background = COLORS[i % COLORS.length];
+      c.style.animationDuration = 2.5 + Math.random() * 2.5 + 's';
+      c.style.animationDelay = Math.random() * 1.2 + 's';
+      document.body.appendChild(c);
+      setTimeout(() => c.remove(), 6500);
+    }
+  }
+
+  // timer animato
+  function tick() {
+    if (view && deadline != null) {
+      const left = Math.max(0, deadline - performance.now());
+      if (view.state === 'question') {
+        const ratio = left / view.questionTime;
+        const bar = $('timerBar');
+        bar.style.transform = `scaleX(${ratio})`;
+        bar.style.backgroundPosition = `${ratio * 100}% 0`;
+        $('qTime').textContent = Math.ceil(left / 1000) + 's';
+      } else if (view.state === 'reveal') {
+        $('timerBar').style.transform = 'scaleX(0)';
+        $('qTime').textContent = view.qIndex + 1 < view.total ? `Prossima tra ${Math.ceil(left / 1000)}s` : 'Risultati…';
+      } else if (view.state === 'countdown') {
+        $('countNum').textContent = Math.max(1, Math.ceil(left / 1000));
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // ---------- azioni ----------
+  async function answer(i) {
+    if (!view || view.state !== 'question' || view.yourAnswer != null) return;
+    view.yourAnswer = i; // feedback immediato
+    renderGame();
+    try {
+      await post('answer', { choice: i, qIndex: view.qIndex });
+    } catch (e) {
+      $('qStatus').textContent = e.message;
+    }
+  }
+
+  async function enter(path, body) {
+    $('homeError').textContent = '';
+    const name = $('nameInput').value.trim();
+    if (!name) { $('homeError').textContent = 'Inserisci un nickname.'; return; }
+    try { localStorage.setItem('domandone-name', name); } catch {}
+    try {
+      session = null;
+      const data = await post(path, { name, ...body });
+      saveSession({ room: data.room, token: data.token });
+      history.replaceState(null, '', `?room=${data.room}`);
+      connect();
+    } catch (e) {
+      $('homeError').textContent = e.message;
+    }
+  }
+
+  $('createBtn').onclick = () => enter('create', {});
+  $('joinBtn').onclick = () => {
+    const room = $('codeInput').value.trim().toUpperCase();
+    if (room.length !== 4) { $('homeError').textContent = 'Il codice stanza ha 4 lettere.'; return; }
+    enter('join', { room });
+  };
+  $('codeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
+  $('nameInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') ($('codeInput').value.trim() ? $('joinBtn') : $('createBtn')).click();
+  });
+
+  const hostAction = (path, errEl) => async () => {
+    try { await post(path, {}); } catch (e) { $(errEl).textContent = e.message; }
+  };
+  $('startBtn').onclick = hostAction('start', 'lobbyError');
+  $('againBtn').onclick = hostAction('start', 'finalWait');
+  $('toLobbyBtn').onclick = hostAction('lobby', 'finalWait');
+
+  async function leave() {
+    try { await post('leave', {}); } catch {}
+    history.replaceState(null, '', location.pathname);
+    goHome('');
+  }
+  $('leaveBtn').onclick = leave;
+  $('leaveBtn2').onclick = leave;
+
+  $('copyBtn').onclick = async () => {
+    try {
+      await navigator.clipboard.writeText($('shareLink').value);
+      $('copyBtn').textContent = 'Copiato!';
+    } catch {
+      $('shareLink').select();
+      $('copyBtn').textContent = 'Premi Ctrl+C';
+    }
+    setTimeout(() => ($('copyBtn').textContent = 'Copia link'), 1500);
+  };
+
+  // ---------- avvio ----------
+  try { $('nameInput').value = localStorage.getItem('domandone-name') || ''; } catch {}
+  const urlRoom = new URLSearchParams(location.search).get('room');
+  if (urlRoom) $('codeInput').value = urlRoom.toUpperCase();
+  const saved = loadSession();
+  if (saved && (!urlRoom || urlRoom.toUpperCase() === saved.room)) {
+    session = saved;
+    connect();
+  } else {
+    show('home');
+  }
+})();
+</script>
+</body>
+</html>
