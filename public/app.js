@@ -1,6 +1,7 @@
-// Il Domandone — gioco multigiocatore peer-to-peer (WebRTC tramite PeerJS).
+// Il Domandone — gioco multigiocatore.
 // Il browser di chi crea la stanza (l'host) fa da "server": tiene lo stato della partita,
-// i timer e i punteggi. Gli altri giocatori si collegano direttamente a lui.
+// i timer e i punteggi. I messaggi tra host e ospiti passano da un server ponte MQTT pubblico
+// (WebSocket sicuro), così funziona da qualunque rete senza un server nostro.
 (() => {
   const MAX_PLAYERS = 10;
   const QUESTIONS_PER_ROUND = 10;
@@ -12,9 +13,16 @@
   const LOBBY_GRACE_MS = 15000; // tempo per riconnettersi prima di essere rimossi dalla lobby
   const HEARTBEAT_MS = 3000;
   const HEARTBEAT_TIMEOUT_MS = 12000;
-  const PEER_PREFIX = 'il-domandone-v1-';
-  // Permette di usare un PeerServer diverso da quello pubblico di PeerJS (es. nei test).
-  const PEER_OPTIONS = window.DOMANDONE_PEER_OPTIONS || {};
+  const HOST_LOST_MS = 60000;
+  const JOIN_TIMEOUT_MS = 9000;
+  const TOPIC = 'il-domandone/v1/';
+  // Server ponte pubblici e gratuiti; si possono sostituire (es. nei test) con window.DOMANDONE_BROKERS.
+  const BROKERS = window.DOMANDONE_BROKERS || [
+    'wss://broker.emqx.io:8084/mqtt',
+    'wss://broker.hivemq.com:8884/mqtt',
+    'wss://test.mosquitto.org:8081/mqtt',
+  ];
+  const NO_SERVER = 'Impossibile raggiungere il server di collegamento. Controlla la connessione a Internet.';
 
   // ---------- utilità ----------
   function randomInt(n) {
@@ -44,13 +52,63 @@
     const ratio = Math.min(Math.max(ms / QUESTION_TIME_MS, 0), 1);
     return Math.round(MAX_POINTS - (MAX_POINTS - MIN_POINTS) * ratio);
   }
-  function openPeer(id) {
+  function parse(payload) {
+    try {
+      const msg = JSON.parse(new TextDecoder().decode(payload));
+      return msg && typeof msg === 'object' ? msg : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Collegamento a un server ponte MQTT: si risolve alla prima connessione riuscita,
+  // poi la libreria si ricollega da sola se la rete cade.
+  function connectBroker(url) {
     return new Promise((resolve, reject) => {
-      const peer = id ? new Peer(id, PEER_OPTIONS) : new Peer(PEER_OPTIONS);
-      const onError = (err) => { peer.destroy(); reject(err); };
-      peer.once('open', () => { peer.off('error', onError); resolve(peer); });
-      peer.once('error', onError);
+      const client = mqtt.connect(url, {
+        clientId: 'ild_' + makeId().replace(/-/g, ''),
+        clean: true,
+        keepalive: 30,
+        connectTimeout: 8000,
+        reconnectPeriod: 0, // al primo tentativo fallito passiamo oltre
+      });
+      client.on('error', () => {});
+      const fail = () => { clearTimeout(timer); client.end(true); reject(new Error('unreachable')); };
+      const timer = setTimeout(fail, 8000);
+      client.once('close', fail);
+      client.once('connect', () => {
+        clearTimeout(timer);
+        client.off('close', fail);
+        client.options.reconnectPeriod = 2000; // da qui in poi si ricollega da solo
+        resolve(client);
+      });
     });
+  }
+
+  // Una "connessione" virtuale verso un ospite, identificato dal suo id sul server ponte.
+  class RelayConn {
+    constructor(client, topic, onClose) {
+      this.client = client;
+      this.topic = topic;
+      this.onClose = onClose;
+      this.open = true;
+      this.handlers = {};
+    }
+    on(event, fn) {
+      (this.handlers[event] ||= []).push(fn);
+    }
+    emit(event, arg) {
+      for (const fn of this.handlers[event] || []) fn(arg);
+    }
+    send(msg) {
+      if (this.open) this.client.publish(this.topic, JSON.stringify(msg));
+    }
+    close() {
+      if (!this.open) return;
+      this.open = false;
+      this.onClose();
+      this.emit('close');
+    }
   }
 
   // =====================================================================
@@ -87,7 +145,6 @@
     attach(conn) {
       conn.on('data', (msg) => this.onMessage(conn, msg));
       conn.on('close', () => this.onConnClosed(conn));
-      conn.on('error', () => this.onConnClosed(conn));
     }
 
     onMessage(conn, msg) {
@@ -95,7 +152,10 @@
       const player = conn.player;
       if (player) player.lastSeen = Date.now();
       if (msg.t === 'join') return this.onJoin(conn, msg);
-      if (!player) return;
+      if (!player) {
+        conn.send({ t: 'rejoin' }); // l'host non lo riconosce più: deve ripresentarsi
+        return;
+      }
       if (msg.t === 'answer') this.answer(player, msg.choice, msg.qIndex, msg.ms);
       else if (msg.t === 'leave') this.remove(player);
     }
@@ -150,6 +210,7 @@
     checkHeartbeats() {
       const now = Date.now();
       for (const p of this.players.values()) {
+        if (p.conn) p.conn.send({ t: 'ping' });
         if (p.conn && now - p.lastSeen > HEARTBEAT_TIMEOUT_MS) {
           const conn = p.conn;
           this.onConnClosed(conn);
@@ -338,17 +399,17 @@
   const COLORS = ['#ff4d6d', '#3d8bfd', '#ffb020', '#2ecc71', '#b05cff', '#ff7ab6', '#4dd8e6', '#ffe066', '#a3e635', '#f97316'];
   const SESSION_KEY = 'domandone-session';
 
-  let peer = null;      // il nostro Peer
+  let relay = null;     // collegamento MQTT al server ponte
   let hostGame = null;  // solo se siamo l'host
-  let hostConn = null;  // solo se siamo un ospite
-  let session = null;   // ospite: { room, name, token }
+  let session = null;   // ospite: { room, name, token, cid, broker }
   let view = null;      // ultimo stato ricevuto
   let deadline = null;  // performance.now() di fine fase
   let questionShownAt = 0;
   let renderedKey = '';
   let celebrated = false;
   let pingTimer = null;
-  let reconnect = null; // { tries, timer }
+  let lastHostMsg = 0;
+  let joinAttempt = null;
   let leaving = false;
 
   // ---------- sessione (per riconnettersi dopo un ricaricamento) ----------
@@ -367,124 +428,145 @@
   async function createRoom(name) {
     setBusy(true, 'Creo la stanza…');
     try {
-      let code;
-      for (let attempt = 0; attempt < 5 && !peer; attempt++) {
-        code = makeRoomCode();
-        try {
-          peer = await openPeer(PEER_PREFIX + code);
-        } catch (err) {
-          if (err.type !== 'unavailable-id') throw err;
+      const client = await Promise.any(BROKERS.map(connectBroker)).catch(() => {
+        throw new Error(NO_SERVER);
+      });
+      relay = { client };
+      const code = makeRoomCode();
+      const game = new HostGame(code);
+      hostGame = game;
+      const me = game.addPlayer(name, (v) => onState(v));
+      game.hostId = me.id;
+
+      // Ogni ospite scrive sul topic dell'host e riceve sul proprio topic.
+      const hostTopic = `${TOPIC}${code}/h`;
+      const conns = new Map();
+      client.on('message', (topic, payload) => {
+        if (topic !== hostTopic) return;
+        const msg = parse(payload);
+        if (!msg || !/^[a-z0-9]{8,64}$/i.test(msg.from)) return;
+        let conn = conns.get(msg.from);
+        if (!conn) {
+          conn = new RelayConn(client, `${TOPIC}${code}/c/${msg.from}`, () => conns.delete(msg.from));
+          conns.set(msg.from, conn);
+          game.attach(conn);
         }
-      }
-      if (!peer) throw new Error('Impossibile creare la stanza, riprova.');
-      hostGame = new HostGame(code);
-      const me = hostGame.addPlayer(name, (v) => onState(v));
-      hostGame.hostId = me.id;
-      const game = hostGame;
-      peer.on('connection', (conn) => game.attach(conn));
-      keepSignaling(peer);
+        conn.emit('data', msg);
+      });
+      await new Promise((resolve, reject) => client.subscribe(hostTopic, (err) => (err ? reject(err) : resolve())));
       history.replaceState(null, '', location.pathname);
-      hostGame.broadcast();
+      game.broadcast();
     } catch (err) {
       resetNetwork();
-      $('homeError').textContent = friendlyError(err);
+      $('homeError').textContent = (err && err.message) || NO_SERVER;
     } finally {
       setBusy(false);
     }
   }
 
   // ---------- entrare in una stanza (ospite) ----------
-  async function joinRoom(room, name, token) {
+  // Non sappiamo su quale server ponte si trova l'host: ci colleghiamo a tutti,
+  // chiediamo di entrare e teniamo quello da cui l'host risponde.
+  async function joinRoom(room, name, token, broker, cid) {
     setBusy(true, 'Mi collego alla stanza…');
-    saveSession({ room, name, token: token || null });
-    try {
-      peer = await openPeer();
-      keepSignaling(peer);
-      peer.on('error', (err) => {
-        if (err.type === 'peer-unavailable') connectionLost(true);
-      });
-      connectToHost();
-    } catch (err) {
-      resetNetwork();
-      saveSession(null);
-      setBusy(false);
-      $('homeError').textContent = friendlyError(err);
+    cid = cid || makeId().replace(/-/g, '');
+    saveSession({ room, name, token: token || null, cid, broker: broker || null });
+    const attempt = {};
+    joinAttempt = attempt;
+    const myTopic = `${TOPIC}${room}/c/${cid}`;
+    const urls = broker ? [broker] : BROKERS;
+    const clients = [];
+    let winner = null;
+    let failed = 0;
+
+    await new Promise((resolve) => {
+      const timeout = setTimeout(resolve, JOIN_TIMEOUT_MS);
+      urls.forEach((url) => connectBroker(url).then((client) => {
+        if (winner || joinAttempt !== attempt) { client.end(true); return; }
+        clients.push(client);
+        client.on('message', (topic, payload) => {
+          if (topic !== myTopic) return;
+          const msg = parse(payload);
+          if (!msg) return;
+          if (!winner) {
+            winner = { client, url };
+            relay = { client };
+            clearTimeout(timeout);
+            resolve();
+          }
+          if (winner.client === client && joinAttempt === attempt) onHostMessage(msg);
+        });
+        client.subscribe(myTopic, (err) => {
+          if (!err) client.publish(`${TOPIC}${room}/h`, JSON.stringify({ t: 'join', from: cid, name, token: token || null }));
+        });
+      }).catch(() => {
+        if (++failed === urls.length) { clearTimeout(timeout); resolve(); }
+      }));
+    });
+
+    for (const c of clients) if (!winner || c !== winner.client || joinAttempt !== attempt) c.end(true);
+    if (joinAttempt !== attempt) return; // nel frattempo siamo tornati alla home
+    if (!winner) {
+      goHome(failed === urls.length ? NO_SERVER
+        : token ? 'L\'host non risponde: la partita potrebbe essere terminata.'
+        : 'Stanza non trovata. Controlla il codice e che l\'host abbia la pagina aperta.');
+      return;
     }
-  }
-
-  // Se cade il collegamento al server di segnalazione, le connessioni già aperte restano attive:
-  // ci ricolleghiamo per accettare nuovi giocatori o riconnessioni.
-  function keepSignaling(p) {
-    p.on('disconnected', () => { if (!p.destroyed && p === peer) p.reconnect(); });
-  }
-
-  function connectToHost() {
-    if (hostConn) hostConn.close();
-    const conn = peer.connect(PEER_PREFIX + session.room, { reliable: true, serialization: 'json' });
-    hostConn = conn;
-    const openTimeout = setTimeout(() => { if (!conn.open) connectionLost(true); }, 10000);
-    conn.on('open', () => {
-      clearTimeout(openTimeout);
-      conn.send({ t: 'join', name: session.name, token: session.token });
-      clearInterval(pingTimer);
-      pingTimer = setInterval(() => conn.open && conn.send({ t: 'ping' }), HEARTBEAT_MS);
-    });
-    conn.on('data', (msg) => {
-      if (conn !== hostConn || !msg) return;
-      if (msg.t === 'joined') {
-        saveSession({ ...session, token: msg.token });
-        reconnect = null;
-        $('netStatus').classList.add('hidden');
-        history.replaceState(null, '', `?room=${session.room}`);
-      } else if (msg.t === 'state') {
-        setBusy(false);
-        onState(msg.view);
-      } else if (msg.t === 'error') {
-        leaving = true;
-        goHome(msg.message);
-      } else if (msg.t === 'closed') {
-        leaving = true;
-        goHome('L\'host ha chiuso la stanza.');
-      }
-    });
-    conn.on('close', () => { if (conn === hostConn) connectionLost(false); });
-    conn.on('error', () => { if (conn === hostConn) connectionLost(false); });
-  }
-
-  function connectionLost(hostMissing) {
-    if (leaving || !session) return;
+    saveSession({ ...session, broker: winner.url });
+    lastHostMsg = Date.now();
     clearInterval(pingTimer);
-    // Mai entrati nella stanza: il codice è sbagliato o l'host non c'è più.
-    if (!session.token) {
-      goHome(hostMissing ? 'Stanza non trovata. Controlla il codice.' : 'Impossibile collegarsi alla stanza.');
-      return;
+    pingTimer = setInterval(guestHeartbeat, HEARTBEAT_MS);
+  }
+
+  function sendToHost(msg) {
+    if (relay && session) {
+      relay.client.publish(`${TOPIC}${session.room}/h`, JSON.stringify({ ...msg, from: session.cid }));
     }
-    if (!reconnect) reconnect = { tries: 0, timer: null };
-    if (reconnect.timer) return;
-    reconnect.tries++;
-    if (reconnect.tries > 8) {
+  }
+
+  function onHostMessage(msg) {
+    lastHostMsg = Date.now();
+    $('netStatus').classList.add('hidden');
+    if (msg.t === 'joined') {
+      saveSession({ ...session, token: msg.token });
+      history.replaceState(null, '', `?room=${session.room}`);
+    } else if (msg.t === 'state') {
+      setBusy(false);
+      onState(msg.view);
+    } else if (msg.t === 'rejoin') {
+      sendToHost({ t: 'join', name: session.name, token: session.token });
+    } else if (msg.t === 'error') {
+      leaving = true;
+      goHome(msg.message);
+    } else if (msg.t === 'closed') {
+      leaving = true;
+      goHome('L\'host ha chiuso la stanza.');
+    }
+  }
+
+  // L'ospite manda un segnale ogni pochi secondi; se l'host tace troppo a lungo riprova a entrare.
+  function guestHeartbeat() {
+    if (!session || leaving) return;
+    const silent = Date.now() - lastHostMsg;
+    if (silent > HOST_LOST_MS) {
       goHome('Connessione con l\'host persa. La partita potrebbe essere terminata.');
-      return;
+    } else if (silent > HEARTBEAT_TIMEOUT_MS) {
+      $('netStatus').classList.remove('hidden');
+      sendToHost({ t: 'join', name: session.name, token: session.token });
+    } else {
+      sendToHost({ t: 'ping' });
     }
-    $('netStatus').classList.remove('hidden');
-    reconnect.timer = setTimeout(() => {
-      reconnect.timer = null;
-      if (!peer || peer.destroyed) return;
-      connectToHost();
-    }, 2500);
   }
 
   function resetNetwork() {
     clearInterval(pingTimer);
-    if (reconnect && reconnect.timer) clearTimeout(reconnect.timer);
-    reconnect = null;
+    pingTimer = null;
+    joinAttempt = null;
     if (hostGame) hostGame.close();
     hostGame = null;
-    if (hostConn) hostConn.close();
-    hostConn = null;
-    const p = peer;
-    peer = null;
-    if (p) setTimeout(() => p.destroy(), 400);
+    const r = relay;
+    relay = null;
+    if (r) setTimeout(() => r.client.end(), 400);
   }
 
   function goHome(msg) {
@@ -499,22 +581,13 @@
     leaving = false;
   }
 
-  function friendlyError(err) {
-    const type = err && err.type;
-    if (type === 'browser-incompatible') return 'Questo browser non supporta le connessioni peer-to-peer (WebRTC).';
-    if (type === 'network' || type === 'server-error' || type === 'socket-error' || type === 'socket-closed') {
-      return 'Impossibile raggiungere il server di collegamento. Controlla la connessione a Internet.';
-    }
-    return (err && err.message) || 'Errore di connessione.';
-  }
-
   // ---------- azioni del giocatore ----------
   function sendAction(msg) {
     if (hostGame) {
       const me = hostGame.players.get(hostGame.hostId);
       if (msg.t === 'answer') hostGame.answer(me, msg.choice, msg.qIndex, undefined);
-    } else if (hostConn && hostConn.open) {
-      hostConn.send(msg);
+    } else {
+      sendToHost(msg);
     }
   }
 
@@ -528,7 +601,7 @@
   function leave() {
     if (hostGame && hostGame.players.size > 1 && !confirm('Sei l\'host: se esci la stanza verrà chiusa per tutti. Vuoi uscire?')) return;
     leaving = true;
-    if (hostConn && hostConn.open) hostConn.send({ t: 'leave' });
+    if (!hostGame) sendToHost({ t: 'leave' });
     history.replaceState(null, '', location.pathname);
     goHome('');
   }
@@ -759,10 +832,10 @@
   const urlRoom = (new URLSearchParams(location.search).get('room') || '').toUpperCase();
   if (urlRoom) $('codeInput').value = urlRoom;
   const saved = loadSession();
-  if (typeof Peer === 'undefined') {
+  if (typeof mqtt === 'undefined') {
     $('homeError').textContent = 'Impossibile caricare il gioco: libreria di rete mancante.';
   } else if (saved && saved.token && (!urlRoom || urlRoom === saved.room)) {
     // l'ospite ha ricaricato la pagina: rientra nella stanza
-    joinRoom(saved.room, saved.name, saved.token);
+    joinRoom(saved.room, saved.name, saved.token, saved.broker, saved.cid);
   }
 })();

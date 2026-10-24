@@ -13,13 +13,14 @@ Quiz multigiocatore da browser su **anime e videogiochi**, fino a **10 giocatori
 
 ## Come funziona il collegamento
 
-Il gioco è un **sito statico**: non serve un server sempre acceso.
-Il browser di chi crea la stanza (l'host) fa da "server" e gli altri giocatori si collegano direttamente a lui in **peer‑to‑peer** (WebRTC, tramite la libreria [PeerJS](https://peerjs.com), inclusa in `public/vendor/`). Per far "trovare" i giocatori tra loro viene usato il server pubblico e gratuito di PeerJS.
+Il gioco è un **sito statico**: non serve un server tuo sempre acceso.
+Il browser di chi crea la stanza (l'host) gestisce la partita, e i messaggi tra host e giocatori passano da un **server ponte MQTT pubblico e gratuito** (EMQX, HiveMQ o Mosquitto, tramite WebSocket sicuro). Se uno di questi server non risponde, il gioco usa automaticamente uno degli altri. Così funziona da qualunque rete: stesso Wi‑Fi, reti diverse, 4G/5G.
 
 Conseguenze pratiche:
 
 - l'host deve **tenere la pagina aperta** (e possibilmente in primo piano) per tutta la partita: se la chiude, la stanza termina per tutti;
-- se un altro giocatore ricarica la pagina o perde la connessione per qualche secondo, rientra automaticamente nella partita con il suo punteggio.
+- se un altro giocatore ricarica la pagina o perde la connessione per qualche secondo, rientra automaticamente nella partita con il suo punteggio;
+- i server ponte sono pubblici: va benissimo per un quiz tra amici, ma non inviare dati personali nei nickname.
 
 ## Pubblicare su Netlify
 
@@ -38,7 +39,7 @@ Serve [Node.js](https://nodejs.org) 18 o superiore, senza dipendenze da installa
 npm start
 ```
 
-Apri `http://localhost:3000`. Serve comunque una connessione a Internet per il server di collegamento di PeerJS.
+Apri `http://localhost:3000`. Serve comunque una connessione a Internet per raggiungere il server ponte.
 
 ## Struttura
 
@@ -47,7 +48,7 @@ Apri `http://localhost:3000`. Serve comunque una connessione a Internet per il s
 | `public/index.html` | Pagina e grafica del gioco. |
 | `public/app.js` | Logica di gioco (motore dell'host) e collegamento tra giocatori. |
 | `public/questions.js` | La banca domande (44 domande). |
-| `public/vendor/peerjs.min.js` | Libreria PeerJS 1.5.4 (licenza MIT). |
+| `public/vendor/mqtt.min.js` | Libreria MQTT.js 5.16.1 (licenza MIT). |
 | `server.js` | Piccolo server di file statici per provare il gioco in locale. |
 | `netlify.toml` | Configurazione per Netlify. |
 
