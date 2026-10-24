@@ -1,6 +1,6 @@
 # Il Domandone 🎮📺
 
-Quiz multigiocatore da browser su **anime e manga, cartoni animati, videogiochi, musica, film e make-up**, fino a **9 giocatori** collegati insieme, ognuno con il suo personaggio.
+Quiz multigiocatore da browser con **16 categorie** (anime e manga, cartoni animati, videogiochi, musica, film, make-up, Pokémon, One Piece, Dragon Ball, Harry Potter, Caparezza, Il Pagante, meme, trasporti, treni e Hyrox), fino a **9 giocatori** collegati insieme, ognuno con il suo personaggio.
 
 ## Come si gioca
 
@@ -48,7 +48,7 @@ Apri `http://localhost:3000`. Serve comunque una connessione a Internet per ragg
 | --- | --- |
 | `public/index.html` | Pagina e grafica del gioco. |
 | `public/app.js` | Logica di gioco (motore dell'host) e collegamento tra giocatori. |
-| `public/questions.js` | Le categorie e la banca domande (181 domande). |
+| `public/questions.js` | Le 16 categorie e la banca domande (317 domande). |
 | `public/avatars/` | Le 9 immagini dei giocatori. |
 | `public/vendor/mqtt.min.js` | Libreria MQTT.js 5.16.1 (licenza MIT). |
 | `server.js` | Piccolo server di file statici per provare il gioco in locale. |
