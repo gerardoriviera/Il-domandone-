@@ -1,15 +1,16 @@
 # Il Domandone 🎮📺
 
-Quiz multigiocatore da browser su **anime e videogiochi**, fino a **10 giocatori** collegati insieme.
+Quiz multigiocatore da browser su **anime e videogiochi**, fino a **9 giocatori** collegati insieme, ognuno con il suo personaggio.
 
 ## Come si gioca
 
-1. Un giocatore crea una stanza e riceve un **codice di 4 lettere** (o un link da condividere).
-2. Gli altri entrano con il codice: tutti si ritrovano nella **lobby**.
-3. L'host avvia la partita: compaiono **10 domande** estratte a caso, ognuna con **5 risposte**. Solo una è giusta, le altre sono trabocchetti.
-4. Hai 20 secondi per rispondere. Se rispondi giusto guadagni da **1000 punti** (risposta istantanea) a **500 punti** (all'ultimo secondo): **più sei veloce, più punti fai**. Una risposta sbagliata vale 0.
-5. Dopo ogni domanda vedi la risposta corretta, chi è stato il più veloce e la classifica.
-6. Dopo 10 domande chi ha più punti **vince il round**. L'host può avviare un nuovo round o tornare alla lobby.
+1. Ognuno sceglie un nickname e un'**immagine** tra 9 personaggi (frutta e verdura). Ogni giocatore ha un'immagine diversa: in lobby quelle già prese sono in grigio e si può cambiare la propria.
+2. Un giocatore crea una stanza e riceve un **codice di 4 lettere** (o un link da condividere).
+3. Gli altri entrano con il codice: tutti si ritrovano nella **lobby**.
+4. L'host avvia la partita: compaiono **10 domande** estratte a caso, ognuna con **5 risposte**. Solo una è giusta, le altre sono trabocchetti.
+5. Hai 20 secondi per rispondere. Se rispondi giusto guadagni da **1000 punti** (risposta istantanea) a **500 punti** (all'ultimo secondo): **più sei veloce, più punti fai**. Una risposta sbagliata vale 0.
+6. Dopo ogni domanda vedi la risposta corretta, chi è stato il più veloce e la classifica.
+7. Dopo 10 domande chi ha più punti **vince il round**. L'host può avviare un nuovo round o tornare alla lobby.
 
 ## Come funziona il collegamento
 
@@ -48,6 +49,7 @@ Apri `http://localhost:3000`. Serve comunque una connessione a Internet per ragg
 | `public/index.html` | Pagina e grafica del gioco. |
 | `public/app.js` | Logica di gioco (motore dell'host) e collegamento tra giocatori. |
 | `public/questions.js` | La banca domande (44 domande). |
+| `public/avatars/` | Le 9 immagini dei giocatori. |
 | `public/vendor/mqtt.min.js` | Libreria MQTT.js 5.16.1 (licenza MIT). |
 | `server.js` | Piccolo server di file statici per provare il gioco in locale. |
 | `netlify.toml` | Configurazione per Netlify. |
@@ -61,3 +63,7 @@ In `public/questions.js` aggiungi un oggetto con la domanda, la risposta corrett
 ```
 
 L'ordine delle risposte viene mescolato a ogni partita.
+
+## Aggiungere immagini
+
+Metti una nuova immagine rotonda in `public/avatars/<nome>.webp` e aggiungi `'<nome>'` alla lista `AVATARS` in cima a `public/app.js`. Il numero massimo di giocatori è pari al numero di immagini, fino a 10.

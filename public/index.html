@@ -68,7 +68,15 @@
     border: 1px solid #ffffff14; animation: pop .25s ease-out;
   }
   .player.offline { opacity: .45; }
-  .avatar { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; color: #1a1235; flex: none; }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; background: #fff; object-fit: cover; flex: none; box-shadow: 0 2px 6px #0005; }
+  .avatar.small { width: 30px; height: 30px; }
+  .avatar.podium-av { width: 64px; height: 64px; margin-bottom: 6px; }
+  .avatar-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 8px; }
+  .av-opt { padding: 4px; border-radius: 50%; background: transparent; border: 3px solid transparent; aspect-ratio: 1; display: grid; place-items: center; }
+  .av-opt img { width: 100%; height: 100%; border-radius: 50%; background: #fff; display: block; }
+  .av-opt.selected { border-color: var(--accent); box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 60%, transparent); }
+  .av-opt:disabled { opacity: .25; filter: grayscale(1); }
+  #myScore { display: flex; align-items: center; gap: 8px; }
   .player .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tag { font-size: .7rem; padding: 2px 6px; border-radius: 6px; background: var(--accent); color: #1a1235; font-weight: 800; margin-left: auto; }
   .tag.you { background: #ffffff22; color: var(--text); }
@@ -144,11 +152,15 @@
   <!-- HOME -->
   <section id="home">
     <div class="logo">Il <span>Domandone</span></div>
-    <div class="subtitle">Quiz multigiocatore su anime e videogiochi · fino a 10 giocatori</div>
+    <div class="subtitle">Quiz multigiocatore su anime e videogiochi · fino a 9 giocatori</div>
     <div class="card stack">
       <div>
         <label for="nameInput">Il tuo nickname</label>
         <input id="nameInput" maxlength="16" placeholder="Es. SuperSaiyan92" autocomplete="off">
+      </div>
+      <div>
+        <label>Scegli la tua immagine</label>
+        <div class="avatar-grid" id="homeAvatars"></div>
       </div>
       <button id="createBtn" style="width:100%">Crea una nuova stanza</button>
       <div class="divider">— oppure entra in una stanza —</div>
@@ -177,6 +189,11 @@
     <div class="card stack">
       <h3>Giocatori <span id="playerCount" class="muted"></span></h3>
       <div class="players" id="lobbyPlayers"></div>
+    </div>
+    <div class="card stack">
+      <h3>La tua immagine</h3>
+      <div class="muted" style="font-size:.85rem">Ogni giocatore ha un'immagine diversa: quelle in grigio sono già state scelte.</div>
+      <div class="avatar-grid" id="lobbyAvatars"></div>
     </div>
     <div class="card stack center">
       <button id="startBtn" style="width:100%;font-size:1.2rem">Inizia la partita!</button>

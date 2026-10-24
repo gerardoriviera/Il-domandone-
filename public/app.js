@@ -3,7 +3,10 @@
 // i timer e i punteggi. I messaggi tra host e ospiti passano da un server ponte MQTT pubblico
 // (WebSocket sicuro), così funziona da qualunque rete senza un server nostro.
 (() => {
-  const MAX_PLAYERS = 10;
+  // Immagini dei giocatori (public/avatars/<nome>.webp): ognuno ne ha una diversa,
+  // quindi il numero massimo di giocatori è limitato anche dal numero di immagini.
+  const AVATARS = ['pomodoro', 'arancia', 'broccolo', 'banana', 'anguria', 'carota', 'uva', 'mela', 'ananas'];
+  const MAX_PLAYERS = Math.min(10, AVATARS.length);
   const QUESTIONS_PER_ROUND = 10;
   const QUESTION_TIME_MS = 20000;
   const REVEAL_TIME_MS = 6000;
@@ -128,9 +131,25 @@
       this.heartbeat = setInterval(() => this.checkHeartbeats(), 2000);
     }
 
-    addPlayer(name, send) {
+    // Restituisce l'immagine richiesta se è libera, altrimenti la prima libera.
+    freeAvatar(wanted, except) {
+      const taken = new Set([...this.players.values()].filter((p) => p !== except).map((p) => p.avatar));
+      wanted = Number(wanted);
+      if (Number.isInteger(wanted) && wanted >= 0 && wanted < AVATARS.length && !taken.has(wanted)) return wanted;
+      return AVATARS.findIndex((_, i) => !taken.has(i));
+    }
+
+    setAvatar(player, wanted) {
+      if (this.state !== 'lobby' && this.state !== 'final') return;
+      const avatar = this.freeAvatar(wanted, player);
+      if (avatar !== Number(wanted)) return; // già presa da qualcun altro
+      player.avatar = avatar;
+      this.broadcast();
+    }
+
+    addPlayer(name, send, avatar) {
       const player = {
-        id: makeId(), token: makeId(), name, score: 0, correctCount: 0, answer: null,
+        id: makeId(), token: makeId(), name, avatar: this.freeAvatar(avatar), score: 0, correctCount: 0, answer: null,
         connected: true, send, conn: null, lastSeen: Date.now(), leaveTimer: null,
       };
       this.players.set(player.id, player);
@@ -157,6 +176,7 @@
         return;
       }
       if (msg.t === 'answer') this.answer(player, msg.choice, msg.qIndex, msg.ms);
+      else if (msg.t === 'avatar') this.setAvatar(player, msg.avatar);
       else if (msg.t === 'leave') this.remove(player);
     }
 
@@ -179,7 +199,7 @@
       if ([...this.players.values()].some((p) => p.name.toLowerCase() === name.toLowerCase())) {
         return reject('Nickname già in uso in questa stanza.');
       }
-      this.bind(this.addPlayer(name, null), conn);
+      this.bind(this.addPlayer(name, null, msg.avatar), conn);
     }
 
     bind(player, conn) {
@@ -347,6 +367,7 @@
         .map((p) => ({
           id: p.id,
           name: p.name,
+          avatar: p.avatar,
           score: p.score,
           correctCount: p.correctCount,
           connected: p.connected,
@@ -425,7 +446,7 @@
   }
 
   // ---------- creare una stanza (host) ----------
-  async function createRoom(name) {
+  async function createRoom(name, avatarIndex) {
     setBusy(true, 'Creo la stanza…');
     try {
       const client = await Promise.any(BROKERS.map(connectBroker)).catch(() => {
@@ -435,7 +456,7 @@
       const code = makeRoomCode();
       const game = new HostGame(code);
       hostGame = game;
-      const me = game.addPlayer(name, (v) => onState(v));
+      const me = game.addPlayer(name, (v) => onState(v), avatarIndex);
       game.hostId = me.id;
 
       // Ogni ospite scrive sul topic dell'host e riceve sul proprio topic.
@@ -467,10 +488,10 @@
   // ---------- entrare in una stanza (ospite) ----------
   // Non sappiamo su quale server ponte si trova l'host: ci colleghiamo a tutti,
   // chiediamo di entrare e teniamo quello da cui l'host risponde.
-  async function joinRoom(room, name, token, broker, cid) {
+  async function joinRoom(room, name, avatarIndex, token, broker, cid) {
     setBusy(true, 'Mi collego alla stanza…');
     cid = cid || makeId().replace(/-/g, '');
-    saveSession({ room, name, token: token || null, cid, broker: broker || null });
+    saveSession({ room, name, avatar: avatarIndex, token: token || null, cid, broker: broker || null });
     const attempt = {};
     joinAttempt = attempt;
     const myTopic = `${TOPIC}${room}/c/${cid}`;
@@ -497,7 +518,7 @@
           if (winner.client === client && joinAttempt === attempt) onHostMessage(msg);
         });
         client.subscribe(myTopic, (err) => {
-          if (!err) client.publish(`${TOPIC}${room}/h`, JSON.stringify({ t: 'join', from: cid, name, token: token || null }));
+          if (!err) client.publish(`${TOPIC}${room}/h`, JSON.stringify({ t: 'join', from: cid, name, avatar: avatarIndex, token: token || null }));
         });
       }).catch(() => {
         if (++failed === urls.length) { clearTimeout(timeout); resolve(); }
@@ -534,7 +555,7 @@
       setBusy(false);
       onState(msg.view);
     } else if (msg.t === 'rejoin') {
-      sendToHost({ t: 'join', name: session.name, token: session.token });
+      sendToHost({ t: 'join', name: session.name, avatar: session.avatar, token: session.token });
     } else if (msg.t === 'error') {
       leaving = true;
       goHome(msg.message);
@@ -552,7 +573,7 @@
       goHome('Connessione con l\'host persa. La partita potrebbe essere terminata.');
     } else if (silent > HEARTBEAT_TIMEOUT_MS) {
       $('netStatus').classList.remove('hidden');
-      sendToHost({ t: 'join', name: session.name, token: session.token });
+      sendToHost({ t: 'join', name: session.name, avatar: session.avatar, token: session.token });
     } else {
       sendToHost({ t: 'ping' });
     }
@@ -586,6 +607,7 @@
     if (hostGame) {
       const me = hostGame.players.get(hostGame.hostId);
       if (msg.t === 'answer') hostGame.answer(me, msg.choice, msg.qIndex, undefined);
+      else if (msg.t === 'avatar') hostGame.setAvatar(me, msg.avatar);
     } else {
       sendToHost(msg);
     }
@@ -618,13 +640,32 @@
   function esc(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
-  function colorFor(id) {
-    let h = 0;
-    for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    return COLORS[h % COLORS.length];
+  function avatarUrl(i) {
+    return `avatars/${AVATARS[i] || AVATARS[0]}.webp`;
   }
-  function avatar(p) {
-    return `<div class="avatar" style="background:${colorFor(p.id)}">${esc(p.name[0].toUpperCase())}</div>`;
+  function avatar(p, cls = '') {
+    return `<img class="avatar ${cls}" src="${avatarUrl(p.avatar)}" alt="">`;
+  }
+
+  // Selettore immagini: in home sceglie la preferita, in lobby mostra quelle già prese.
+  function renderAvatarPicker(el, selected, takenBy) {
+    el.innerHTML = AVATARS.map((name, i) => {
+      const owner = takenBy && takenBy.get(i);
+      return `<button type="button" class="av-opt ${i === selected ? 'selected' : ''}" data-i="${i}"
+        ${owner ? 'disabled' : ''} title="${owner ? 'Già scelta da ' + esc(owner) : name}" aria-label="${name}">
+        <img src="${avatarUrl(i)}" alt=""></button>`;
+    }).join('');
+  }
+  function loadAvatarChoice() {
+    try {
+      const i = Number(localStorage.getItem('domandone-avatar'));
+      return Number.isInteger(i) && i >= 0 && i < AVATARS.length ? i : 0;
+    } catch {
+      return 0;
+    }
+  }
+  function saveAvatarChoice(i) {
+    try { localStorage.setItem('domandone-avatar', String(i)); } catch {}
   }
   const me = () => view.players.find((p) => p.id === view.you);
   const isHost = () => view.hostId === view.you;
@@ -653,6 +694,8 @@
         ${avatar(p)}<div class="name">${esc(p.name)}</div>
         ${p.id === view.hostId ? '<span class="tag">HOST</span>' : p.id === view.you ? '<span class="tag you">TU</span>' : ''}
       </div>`).join('');
+    const takenBy = new Map(view.players.filter((p) => p.id !== view.you).map((p) => [p.avatar, p.name]));
+    renderAvatarPicker($('lobbyAvatars'), me().avatar, takenBy);
     $('startBtn').classList.toggle('hidden', !isHost());
     $('hostNote').classList.toggle('hidden', !isHost());
     $('waitHost').classList.toggle('hidden', isHost());
@@ -664,7 +707,7 @@
     const key = `${view.room}:${view.qIndex}:${view.state}`;
     const isReveal = view.state === 'reveal';
     $('qCounter').textContent = `Domanda ${view.qIndex + 1}/${view.total}`;
-    $('myScore').textContent = `${me().score} pt`;
+    $('myScore').innerHTML = `${avatar(me(), 'small')}<span>${me().score} pt</span>`;
 
     if (key !== renderedKey) {
       renderedKey = key;
@@ -729,7 +772,7 @@
       ? `🏆 Pareggio tra <span>${tied.map((p) => esc(p.name)).join(', ')}</span>!`
       : `🏆 Vince <span>${esc(p1.name)}</span> con ${p1.score} punti!`;
     const step = (p, cls, n) => p
-      ? `<div class="step ${cls}"><div class="pname">${esc(p.name)}</div><div class="pscore">${p.score} pt</div><div class="block">${n}</div></div>`
+      ? `<div class="step ${cls}">${avatar(p, 'podium-av')}<div class="pname">${esc(p.name)}</div><div class="pscore">${p.score} pt</div><div class="block">${n}</div></div>`
       : '<div></div>';
     $('podium').innerHTML = step(p2, 'p2', 2) + step(p1, 'p1', 1) + step(p3, 'p3', 3);
     renderBoard($('finalBoard'), false);
@@ -787,7 +830,7 @@
   $('createBtn').onclick = () => {
     $('homeError').textContent = '';
     const name = readName();
-    if (name) createRoom(name);
+    if (name) createRoom(name, homeAvatar);
   };
   $('joinBtn').onclick = () => {
     $('homeError').textContent = '';
@@ -795,11 +838,31 @@
     const name = readName();
     if (!name) return;
     if (!/^[A-Z]{4}$/.test(room)) { $('homeError').textContent = 'Il codice stanza ha 4 lettere.'; return; }
-    joinRoom(room, name, null);
+    joinRoom(room, name, homeAvatar, null);
   };
   $('codeInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('joinBtn').click(); });
   $('nameInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') ($('codeInput').value.trim() ? $('joinBtn') : $('createBtn')).click();
+  });
+
+  let homeAvatar = loadAvatarChoice();
+  renderAvatarPicker($('homeAvatars'), homeAvatar, null);
+  $('homeAvatars').addEventListener('click', (e) => {
+    const btn = e.target.closest('.av-opt');
+    if (!btn) return;
+    homeAvatar = Number(btn.dataset.i);
+    saveAvatarChoice(homeAvatar);
+    renderAvatarPicker($('homeAvatars'), homeAvatar, null);
+  });
+  $('lobbyAvatars').addEventListener('click', (e) => {
+    const btn = e.target.closest('.av-opt');
+    if (!btn || btn.disabled || !view) return;
+    const i = Number(btn.dataset.i);
+    homeAvatar = i;
+    saveAvatarChoice(i);
+    renderAvatarPicker($('homeAvatars'), i, null);
+    if (session) saveSession({ ...session, avatar: i });
+    sendAction({ t: 'avatar', avatar: i });
   });
 
   $('startBtn').onclick = () => hostGame && hostGame.start();
@@ -836,6 +899,6 @@
     $('homeError').textContent = 'Impossibile caricare il gioco: libreria di rete mancante.';
   } else if (saved && saved.token && (!urlRoom || urlRoom === saved.room)) {
     // l'ospite ha ricaricato la pagina: rientra nella stanza
-    joinRoom(saved.room, saved.name, saved.token, saved.broker, saved.cid);
+    joinRoom(saved.room, saved.name, saved.avatar, saved.token, saved.broker, saved.cid);
   }
 })();
