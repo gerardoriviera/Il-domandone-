@@ -1,7 +1,7 @@
 {
   "name": "il-domandone",
   "version": "1.0.0",
-  "description": "Quiz multigiocatore (fino a 9 giocatori) con 16 categorie di domande",
+  "description": "Quiz multigiocatore (fino a 9 giocatori) con 19 categorie di domande",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
