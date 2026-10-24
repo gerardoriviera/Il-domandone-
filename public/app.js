@@ -167,7 +167,6 @@
       this.timer = null;
       this.roundCats = [];
       this.usedQuestions = new Set(); // domande già uscite in questa stanza ("categoria:indice")
-      this.usedCustom = new Set();    // giocatori la cui domanda bonus è già uscita
       this.heartbeat = setInterval(() => this.checkHeartbeats(), 2000);
     }
 
@@ -301,7 +300,7 @@
     }
 
     // Estrae 5 domande per giocatore: ogni categoria ha probabilità proporzionale
-    // a quante volte è stata scelta dai giocatori. Alla fine aggiunge la domanda bonus di un giocatore.
+    // a quante volte è stata scelta dai giocatori. Dopo ogni 5 domande inserisce quella di un giocatore.
     buildRound(participants) {
       const bank = window.QUESTIONS;
       const weights = {};
@@ -340,21 +339,18 @@
         questions.push({ q: item.q, options, correct: options.indexOf(item.a), cat });
       }
 
-      // domanda bonus scritta da uno dei giocatori, a rotazione
-      const authors = participants.filter((p) => p.setup && p.setup.custom);
-      let candidates = authors.filter((p) => !this.usedCustom.has(p.id));
-      if (candidates.length === 0) {
-        for (const p of authors) this.usedCustom.delete(p.id);
-        candidates = authors;
-      }
-      if (candidates.length > 0) {
-        const author = candidates[randomInt(candidates.length)];
-        this.usedCustom.add(author.id);
+      // le domande scritte dai giocatori escono tutte, una dopo ogni blocco di 5 domande
+      const customs = shuffle(participants.filter((p) => p.setup && p.setup.custom)).map((author) => {
         const c = author.setup.custom;
         const options = shuffle(c.options);
-        questions.push({ q: c.q, options, correct: options.indexOf(c.options[c.correct]), cat: 'bonus', authorId: author.id, authorName: author.name });
-      }
-      return questions;
+        return { q: c.q, options, correct: options.indexOf(c.options[c.correct]), cat: 'bonus', authorId: author.id, authorName: author.name };
+      });
+      const round = [];
+      questions.forEach((q, i) => {
+        round.push(q);
+        if ((i + 1) % QUESTIONS_PER_PLAYER === 0 && customs.length) round.push(customs.shift());
+      });
+      return round.concat(customs);
     }
 
     start() {
@@ -500,7 +496,7 @@
         hostId: this.hostId,
         maxPlayers: MAX_PLAYERS,
         total: this.questions.length,
-        hasBonus: this.questions.some((q) => q.authorId),
+        bonusCount: this.questions.filter((q) => q.authorId).length,
         roundCats: this.roundCats,
         yourSetup: player.setup,
         foolPoints: FOOL_POINTS,
@@ -832,7 +828,9 @@
   function renderCountdown() {
     show('countdown');
     const totalPicks = view.roundCats.reduce((sum, c) => sum + c.count, 0);
-    $('roundInfo').innerHTML = `<div>Round da <b>${view.total}</b> domande${view.hasBonus ? ' (l\'ultima è la domanda bonus di un giocatore!)' : ''}</div>
+    const regular = view.total - view.bonusCount;
+    $('roundInfo').innerHTML = `<div>Round da <b>${regular}</b> domande${view.bonusCount
+      ? ` + <b>${view.bonusCount}</b> ${view.bonusCount === 1 ? 'domanda scritta da un giocatore' : 'domande scritte dai giocatori'}, una ogni ${QUESTIONS_PER_PLAYER}!` : ''}</div>
       <div class="cat-mix">${view.roundCats.slice().sort((a, b) => b.count - a.count).map((c) => {
         const info = catInfo(c.id);
         return `<span class="chip on">${info.emoji} ${esc(info.label)} · ${Math.round((c.count / totalPicks) * 100)}%</span>`;
@@ -845,7 +843,7 @@
     const key = `${view.room}:${view.qIndex}:${view.state}`;
     const isReveal = view.state === 'reveal';
     const isBonus = q.cat === 'bonus';
-    $('qCounter').textContent = isBonus ? '⭐ Domanda bonus' : `Domanda ${view.qIndex + 1}/${view.total}`;
+    $('qCounter').textContent = `${isBonus ? '⭐ ' : ''}Domanda ${view.qIndex + 1}/${view.total}`;
     $('myScore').innerHTML = `${avatar(me(), 'small')}<span>${me().score} pt</span>`;
 
     if (key !== renderedKey) {
