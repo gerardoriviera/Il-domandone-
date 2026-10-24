@@ -148,6 +148,8 @@
   .cat-mix { justify-content: center; margin-top: 10px; }
   .chip { padding: 9px 14px; border-radius: 99px; background: #ffffff14; color: var(--text); border: 2px solid transparent; font-weight: 700; font-size: .95rem; }
   .chip.on { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); }
+  .chip-n { color: var(--accent); margin-left: 2px; }
+  .chip-x { display: inline-grid; place-items: center; width: 22px; height: 22px; margin-left: 6px; border-radius: 50%; background: #0005; font-size: .75rem; }
   .custom-answers { display: grid; gap: 8px; }
   .custom-answers > label:first-child { margin-bottom: 0; }
   .custom-a { display: flex; align-items: center; gap: 10px; margin: 0; }
@@ -217,7 +219,7 @@
     <div class="card stack" id="setupForm">
       <h3>Prepara la partita</h3>
       <div>
-        <label>Scegli 3 categorie <span id="catCount" class="muted"></span></label>
+        <label>Scegli 3 categorie <span id="catCount" class="muted"></span> · puoi ripetere la stessa più volte</label>
         <div class="chips" id="catPicker"></div>
         <div class="muted hint">Le domande del round escono in proporzione alle categorie scelte da tutti i giocatori.</div>
       </div>

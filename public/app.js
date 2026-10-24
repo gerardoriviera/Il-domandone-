@@ -60,7 +60,8 @@
   function cleanSetup(data) {
     data = data && typeof data === 'object' ? data : {};
     const ids = window.CATEGORIES.map((c) => c.id);
-    const cats = [...new Set(Array.isArray(data.cats) ? data.cats : [])].filter((c) => ids.includes(c)).slice(0, CATEGORIES_PER_PLAYER);
+    // la stessa categoria può essere scelta più volte per renderla più frequente
+    const cats = (Array.isArray(data.cats) ? data.cats : []).filter((c) => ids.includes(c)).slice(0, CATEGORIES_PER_PLAYER).sort();
     let custom = null;
     const c = data.custom;
     if (c && typeof c === 'object' && Array.isArray(c.options)) {
@@ -987,8 +988,11 @@
   }
 
   function renderCatPicker() {
-    $('catPicker').innerHTML = window.CATEGORIES.map((c) => `
-      <button type="button" class="chip ${draft.cats.includes(c.id) ? 'on' : ''}" data-id="${c.id}">${c.emoji} ${esc(c.label)}</button>`).join('');
+    $('catPicker').innerHTML = window.CATEGORIES.map((c) => {
+      const n = draft.cats.filter((id) => id === c.id).length;
+      return `<button type="button" class="chip ${n ? 'on' : ''}" data-id="${c.id}">${c.emoji} ${esc(c.label)}${
+        n ? ` <b class="chip-n">×${n}</b><span class="chip-x" data-remove="${c.id}" title="Togli una scelta">✕</span>` : ''}</button>`;
+    }).join('');
     $('catCount').textContent = `${draft.cats.length}/${CATEGORIES_PER_PLAYER}`;
   }
 
@@ -1035,10 +1039,14 @@
     const btn = e.target.closest('.chip');
     if (!btn) return;
     const id = btn.dataset.id;
-    if (draft.cats.includes(id)) draft.cats = draft.cats.filter((c) => c !== id);
-    else if (draft.cats.length < CATEGORIES_PER_PLAYER) draft.cats.push(id);
-    else {
-      $('setupStatus').textContent = `Puoi scegliere al massimo ${CATEGORIES_PER_PLAYER} categorie: togline una prima.`;
+    const remove = e.target.closest('.chip-x');
+    $('setupStatus').textContent = '';
+    if (remove) {
+      draft.cats.splice(draft.cats.lastIndexOf(id), 1);
+    } else if (draft.cats.length < CATEGORIES_PER_PLAYER) {
+      draft.cats.push(id);
+    } else {
+      $('setupStatus').textContent = `Hai già scelto ${CATEGORIES_PER_PLAYER} categorie: togline una con ✕ per cambiarle.`;
       return;
     }
     saveDraft();
