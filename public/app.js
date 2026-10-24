@@ -7,7 +7,9 @@
   // quindi il numero massimo di giocatori è limitato anche dal numero di immagini.
   const AVATARS = ['pomodoro', 'arancia', 'broccolo', 'banana', 'anguria', 'carota', 'uva', 'mela', 'ananas'];
   const MAX_PLAYERS = Math.min(10, AVATARS.length);
-  const QUESTIONS_PER_ROUND = 10;
+  const QUESTIONS_PER_PLAYER = 5; // un round ha 5 domande per ogni giocatore
+  const CATEGORIES_PER_PLAYER = 3;
+  const FOOL_POINTS = 250; // punti all'autore della domanda bonus per ogni giocatore che sbaglia
   const QUESTION_TIME_MS = 20000;
   const REVEAL_TIME_MS = 6000;
   const COUNTDOWN_MS = 3000;
@@ -51,6 +53,40 @@
   function cleanName(name) {
     return String(name || '').replace(/\s+/g, ' ').trim().slice(0, 16);
   }
+  function cleanText(text, max) {
+    return String(text || '').replace(/\s+/g, ' ').trim().slice(0, max);
+  }
+  // Valida le scelte di un giocatore: 3 categorie diverse e una domanda con 4 risposte, 1 giusta.
+  function cleanSetup(data) {
+    data = data && typeof data === 'object' ? data : {};
+    const ids = window.CATEGORIES.map((c) => c.id);
+    const cats = [...new Set(Array.isArray(data.cats) ? data.cats : [])].filter((c) => ids.includes(c)).slice(0, CATEGORIES_PER_PLAYER);
+    let custom = null;
+    const c = data.custom;
+    if (c && typeof c === 'object' && Array.isArray(c.options)) {
+      const q = cleanText(c.q, 160);
+      const options = c.options.slice(0, 4).map((o) => cleanText(o, 60));
+      const correct = Number(c.correct);
+      const distinct = new Set(options.map((o) => o.toLowerCase())).size === 4;
+      if (q && options.length === 4 && options.every(Boolean) && distinct && Number.isInteger(correct) && correct >= 0 && correct < 4) {
+        custom = { q, options, correct };
+      }
+    }
+    return { cats, custom };
+  }
+  function isReady(setup) {
+    return !!setup && setup.cats.length === CATEGORIES_PER_PLAYER && !!setup.custom;
+  }
+  function weightedPick(weights) {
+    const entries = Object.entries(weights).filter(([, w]) => w > 0);
+    let r = Math.random() * entries.reduce((sum, [, w]) => sum + w, 0);
+    for (const [key, w] of entries) {
+      r -= w;
+      if (r < 0) return key;
+    }
+    return entries[entries.length - 1][0];
+  }
+
   function pointsFor(ms) {
     const ratio = Math.min(Math.max(ms / QUESTION_TIME_MS, 0), 1);
     return Math.round(MAX_POINTS - (MAX_POINTS - MIN_POINTS) * ratio);
@@ -128,6 +164,9 @@
       this.qStart = 0;
       this.phaseEnds = null;
       this.timer = null;
+      this.roundCats = [];
+      this.usedQuestions = new Set(); // domande già uscite in questa stanza ("categoria:indice")
+      this.usedCustom = new Set();    // giocatori la cui domanda bonus è già uscita
       this.heartbeat = setInterval(() => this.checkHeartbeats(), 2000);
     }
 
@@ -147,9 +186,15 @@
       this.broadcast();
     }
 
+    setSetup(player, data) {
+      if (this.state !== 'lobby' && this.state !== 'final') return;
+      player.setup = cleanSetup(data);
+      this.broadcast();
+    }
+
     addPlayer(name, send, avatar) {
       const player = {
-        id: makeId(), token: makeId(), name, avatar: this.freeAvatar(avatar), score: 0, correctCount: 0, answer: null,
+        id: makeId(), token: makeId(), name, avatar: this.freeAvatar(avatar), setup: null, score: 0, correctCount: 0, answer: null,
         connected: true, send, conn: null, lastSeen: Date.now(), leaveTimer: null,
       };
       this.players.set(player.id, player);
@@ -177,6 +222,7 @@
       }
       if (msg.t === 'answer') this.answer(player, msg.choice, msg.qIndex, msg.ms);
       else if (msg.t === 'avatar') this.setAvatar(player, msg.avatar);
+      else if (msg.t === 'setup') this.setSetup(player, msg.setup);
       else if (msg.t === 'leave') this.remove(player);
     }
 
@@ -253,13 +299,67 @@
       this.timer = null;
     }
 
+    // Estrae 5 domande per giocatore: ogni categoria ha probabilità proporzionale
+    // a quante volte è stata scelta dai giocatori. Alla fine aggiunge la domanda bonus di un giocatore.
+    buildRound(participants) {
+      const bank = window.QUESTIONS;
+      const weights = {};
+      for (const p of participants) {
+        for (const c of (p.setup ? p.setup.cats : [])) weights[c] = (weights[c] || 0) + 1;
+      }
+      if (Object.keys(weights).length === 0) for (const c of Object.keys(bank)) weights[c] = 1;
+      this.roundCats = Object.entries(weights).map(([id, count]) => ({ id, count }));
+
+      const pickedNow = new Set();
+      const poolFor = (cat) => {
+        let pool = bank[cat].map((_, i) => `${cat}:${i}`).filter((k) => !this.usedQuestions.has(k) && !pickedNow.has(k));
+        if (pool.length === 0) {
+          // categoria esaurita: si ricomincia a pescare tra le sue domande già uscite in passato
+          for (const k of [...this.usedQuestions]) if (k.startsWith(cat + ':')) this.usedQuestions.delete(k);
+          pool = bank[cat].map((_, i) => `${cat}:${i}`).filter((k) => !pickedNow.has(k));
+        }
+        return pool;
+      };
+
+      const questions = [];
+      const total = QUESTIONS_PER_PLAYER * participants.length;
+      for (let n = 0; n < total; n++) {
+        let available = Object.fromEntries(Object.entries(weights).filter(([c]) => poolFor(c).length > 0));
+        if (Object.keys(available).length === 0) {
+          available = Object.fromEntries(Object.keys(bank).filter((c) => poolFor(c).length > 0).map((c) => [c, 1]));
+        }
+        if (Object.keys(available).length === 0) break;
+        const cat = weightedPick(available);
+        const pool = poolFor(cat);
+        const key = pool[randomInt(pool.length)];
+        pickedNow.add(key);
+        this.usedQuestions.add(key);
+        const item = bank[cat][Number(key.split(':')[1])];
+        const options = shuffle([item.a, ...item.w]);
+        questions.push({ q: item.q, options, correct: options.indexOf(item.a), cat });
+      }
+
+      // domanda bonus scritta da uno dei giocatori, a rotazione
+      const authors = participants.filter((p) => p.setup && p.setup.custom);
+      let candidates = authors.filter((p) => !this.usedCustom.has(p.id));
+      if (candidates.length === 0) {
+        for (const p of authors) this.usedCustom.delete(p.id);
+        candidates = authors;
+      }
+      if (candidates.length > 0) {
+        const author = candidates[randomInt(candidates.length)];
+        this.usedCustom.add(author.id);
+        const c = author.setup.custom;
+        const options = shuffle(c.options);
+        questions.push({ q: c.q, options, correct: options.indexOf(c.options[c.correct]), cat: 'bonus', authorId: author.id, authorName: author.name });
+      }
+      return questions;
+    }
+
     start() {
       if (this.state !== 'lobby' && this.state !== 'final') return;
       this.clearTimer();
-      this.questions = shuffle(window.QUESTIONS).slice(0, QUESTIONS_PER_ROUND).map((item) => {
-        const options = shuffle([item.a, ...item.w]);
-        return { q: item.q, options, correct: options.indexOf(item.a) };
-      });
+      this.questions = this.buildRound(this.online());
       this.qIndex = -1;
       for (const p of this.players.values()) {
         p.score = 0;
@@ -296,6 +396,7 @@
     answer(player, choice, qIndex, clientMs) {
       choice = Number(choice);
       if (this.state !== 'question' || Number(qIndex) !== this.qIndex || player.answer) return;
+      if (this.questions[this.qIndex].authorId === player.id) return; // l'autore non risponde alla sua domanda
       if (!Number.isInteger(choice) || choice < 0 || choice >= this.questions[this.qIndex].options.length) return;
       // Il tempo misurato dall'host include la latenza di rete: usiamo quello misurato dal
       // giocatore, ma solo entro un margine di 2 secondi da quello dell'host.
@@ -309,8 +410,9 @@
 
     maybeEndQuestionEarly() {
       if (this.state !== 'question') return;
-      const online = this.online();
-      if (online.length > 0 && online.every((p) => p.answer)) {
+      const authorId = this.questions[this.qIndex].authorId;
+      const online = this.online().filter((p) => p.id !== authorId);
+      if (online.length === 0 || online.every((p) => p.answer)) {
         this.clearTimer();
         this.timer = setTimeout(() => this.reveal(), 600);
       }
@@ -320,11 +422,20 @@
       if (this.state !== 'question') return;
       this.clearTimer();
       const q = this.questions[this.qIndex];
+      let fooled = 0;
       for (const p of this.players.values()) {
         if (!p.answer) continue;
         p.answer.points = p.answer.choice === q.correct ? pointsFor(p.answer.ms) : 0;
         p.score += p.answer.points;
         if (p.answer.points) p.correctCount++;
+        else fooled++;
+      }
+      // l'autore della domanda bonus guadagna punti per ogni giocatore che ha ingannato
+      const author = q.authorId && this.players.get(q.authorId);
+      if (author) {
+        q.fooled = fooled;
+        author.answer = { choice: null, ms: null, points: fooled * FOOL_POINTS };
+        author.score += author.answer.points;
       }
       this.state = 'reveal';
       this.phaseEnds = Date.now() + REVEAL_TIME_MS;
@@ -371,10 +482,11 @@
           score: p.score,
           correctCount: p.correctCount,
           connected: p.connected,
+          ready: isReady(p.setup),
           answered: !!p.answer,
           lastPoints: p.answer ? p.answer.points : null,
           lastMs: p.answer ? p.answer.ms : null,
-          lastChoice: this.state === 'reveal' && p.answer ? p.answer.choice : null,
+          lastChoice: this.state === 'reveal' && p.answer && p.answer.choice != null ? p.answer.choice : null,
         }))
         .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
     }
@@ -386,7 +498,11 @@
         you: player.id,
         hostId: this.hostId,
         maxPlayers: MAX_PLAYERS,
-        total: QUESTIONS_PER_ROUND,
+        total: this.questions.length,
+        hasBonus: this.questions.some((q) => q.authorId),
+        roundCats: this.roundCats,
+        yourSetup: player.setup,
+        foolPoints: FOOL_POINTS,
         questionTime: QUESTION_TIME_MS,
         remainingMs: this.phaseEnds ? Math.max(0, this.phaseEnds - Date.now()) : null,
         players,
@@ -394,10 +510,12 @@
       if (this.state === 'question' || this.state === 'reveal') {
         const q = this.questions[this.qIndex];
         view.qIndex = this.qIndex;
-        view.question = { text: q.q, options: q.options };
+        view.question = { text: q.q, options: q.options, cat: q.cat, author: q.authorName || null };
+        view.isAuthor = q.authorId === player.id;
         view.yourAnswer = player.answer ? player.answer.choice : null;
         if (this.state === 'reveal') {
           view.question.correct = q.correct;
+          view.question.fooled = q.fooled || 0;
           view.yourPoints = player.answer ? player.answer.points : 0;
         }
       }
@@ -608,6 +726,7 @@
       const me = hostGame.players.get(hostGame.hostId);
       if (msg.t === 'answer') hostGame.answer(me, msg.choice, msg.qIndex, undefined);
       else if (msg.t === 'avatar') hostGame.setAvatar(me, msg.avatar);
+      else if (msg.t === 'setup') hostGame.setSetup(me, msg.setup);
     } else {
       sendToHost(msg);
     }
@@ -678,7 +797,7 @@
     if (s.state === 'question' && prevKey !== `question:${s.qIndex}`) questionShownAt = performance.now();
     if (s.state !== 'final') celebrated = false;
     if (s.state === 'lobby') renderLobby();
-    else if (s.state === 'countdown') show('countdown');
+    else if (s.state === 'countdown') renderCountdown();
     else if (s.state === 'question' || s.state === 'reveal') renderGame();
     else if (s.state === 'final') renderFinal();
   }
@@ -691,9 +810,13 @@
     $('playerCount').textContent = `(${view.players.length}/${view.maxPlayers})`;
     $('lobbyPlayers').innerHTML = view.players.map((p) => `
       <div class="player ${p.connected ? '' : 'offline'}">
-        ${avatar(p)}<div class="name">${esc(p.name)}</div>
+        ${avatar(p)}<div class="name">${esc(p.name)}<div class="ready ${p.ready ? 'ok' : ''}">${p.ready ? '✓ Pronto' : '⏳ Si prepara…'}</div></div>
         ${p.id === view.hostId ? '<span class="tag">HOST</span>' : p.id === view.you ? '<span class="tag you">TU</span>' : ''}
       </div>`).join('');
+    renderSetupStatus();
+    const online = view.players.filter((p) => p.connected);
+    const ready = online.filter((p) => p.ready).length;
+    $('startBtn').textContent = `Inizia la partita! (${ready}/${online.length} pronti)`;
     const takenBy = new Map(view.players.filter((p) => p.id !== view.you).map((p) => [p.avatar, p.name]));
     renderAvatarPicker($('lobbyAvatars'), me().avatar, takenBy);
     $('startBtn').classList.toggle('hidden', !isHost());
@@ -701,17 +824,35 @@
     $('waitHost').classList.toggle('hidden', isHost());
   }
 
+  function catInfo(id) {
+    return window.CATEGORIES.find((c) => c.id === id) || { label: id, emoji: '❓' };
+  }
+
+  function renderCountdown() {
+    show('countdown');
+    const totalPicks = view.roundCats.reduce((sum, c) => sum + c.count, 0);
+    $('roundInfo').innerHTML = `<div>Round da <b>${view.total}</b> domande${view.hasBonus ? ' (l\'ultima è la domanda bonus di un giocatore!)' : ''}</div>
+      <div class="cat-mix">${view.roundCats.slice().sort((a, b) => b.count - a.count).map((c) => {
+        const info = catInfo(c.id);
+        return `<span class="chip on">${info.emoji} ${esc(info.label)} · ${Math.round((c.count / totalPicks) * 100)}%</span>`;
+      }).join('')}</div>`;
+  }
+
   function renderGame() {
     show('game');
     const q = view.question;
     const key = `${view.room}:${view.qIndex}:${view.state}`;
     const isReveal = view.state === 'reveal';
-    $('qCounter').textContent = `Domanda ${view.qIndex + 1}/${view.total}`;
+    const isBonus = q.cat === 'bonus';
+    $('qCounter').textContent = isBonus ? '⭐ Domanda bonus' : `Domanda ${view.qIndex + 1}/${view.total}`;
     $('myScore').innerHTML = `${avatar(me(), 'small')}<span>${me().score} pt</span>`;
 
     if (key !== renderedKey) {
       renderedKey = key;
       $('qText').textContent = q.text;
+      const info = catInfo(q.cat);
+      $('qCat').className = `q-cat ${isBonus ? 'bonus' : ''}`;
+      $('qCat').textContent = isBonus ? `⭐ La domanda di ${q.author}` : `${info.emoji} ${info.label}`;
       $('answers').innerHTML = q.options.map((opt, i) => `
         <button class="answer" data-i="${i}"><span class="letter">${LETTERS[i]}</span><span>${esc(opt)}</span></button>`).join('');
       $('answers').querySelectorAll('.answer').forEach((btn) => btn.addEventListener('click', () => answer(Number(btn.dataset.i))));
@@ -719,7 +860,7 @@
 
     const buttons = [...$('answers').querySelectorAll('.answer')];
     buttons.forEach((btn, i) => {
-      btn.disabled = view.yourAnswer != null || isReveal;
+      btn.disabled = view.yourAnswer != null || isReveal || view.isAuthor;
       btn.classList.toggle('chosen', view.yourAnswer === i);
       btn.classList.toggle('dim', !isReveal && view.yourAnswer != null && view.yourAnswer !== i);
       btn.classList.toggle('correct', isReveal && q.correct === i);
@@ -731,25 +872,36 @@
       }
     });
 
-    const online = view.players.filter((p) => p.connected);
+    const online = view.players.filter((p) => p.connected && !(isBonus && p.name === q.author));
     const answered = online.filter((p) => p.answered).length;
     const banner = $('resultBanner');
     if (isReveal) {
-      const ok = view.yourAnswer === q.correct;
-      banner.className = `banner ${ok ? 'good' : 'bad'}`;
-      banner.textContent = ok
-        ? `Corretto! +${view.yourPoints} punti (${(me().lastMs / 1000).toFixed(2)}s)`
-        : view.yourAnswer == null ? 'Tempo scaduto!' : 'Sbagliato!';
-      const fastest = view.players.filter((p) => p.lastPoints > 0).sort((a, b) => a.lastMs - b.lastMs)[0];
-      $('qStatus').textContent = fastest ? `⚡ Il più veloce: ${fastest.name} in ${(fastest.lastMs / 1000).toFixed(2)}s` : 'Nessuno ha indovinato!';
+      if (view.isAuthor) {
+        const n = q.fooled;
+        banner.className = `banner ${n ? 'good' : 'bad'}`;
+        banner.textContent = n
+          ? `Hai ingannato ${n} giocator${n === 1 ? 'e' : 'i'}: +${view.yourPoints} punti!`
+          : 'Nessuno ci è cascato!';
+      } else {
+        const ok = view.yourAnswer === q.correct;
+        banner.className = `banner ${ok ? 'good' : 'bad'}`;
+        banner.textContent = ok
+          ? `Corretto! +${view.yourPoints} punti (${(me().lastMs / 1000).toFixed(2)}s)`
+          : view.yourAnswer == null ? 'Tempo scaduto!' : 'Sbagliato!';
+      }
+      const fastest = view.players.filter((p) => p.lastPoints > 0 && p.lastMs != null).sort((a, b) => a.lastMs - b.lastMs)[0];
+      const author = isBonus ? ` · ${q.author} ha ingannato ${q.fooled} giocator${q.fooled === 1 ? 'e' : 'i'}` : '';
+      $('qStatus').textContent = (fastest ? `⚡ Il più veloce: ${fastest.name} in ${(fastest.lastMs / 1000).toFixed(2)}s` : 'Nessuno ha indovinato!') + author;
       $('revealBoard').classList.remove('hidden');
       renderBoard($('board'), true);
     } else {
       banner.className = 'banner hidden';
       $('revealBoard').classList.add('hidden');
-      $('qStatus').textContent = view.yourAnswer != null
-        ? `Risposta inviata! In attesa degli altri… (${answered}/${online.length})`
-        : `${answered}/${online.length} hanno risposto`;
+      $('qStatus').textContent = view.isAuthor
+        ? `È la tua domanda! Guadagni ${view.foolPoints} punti per ogni giocatore che sbaglia. (${answered}/${online.length} hanno risposto)`
+        : view.yourAnswer != null
+          ? `Risposta inviata! In attesa degli altri… (${answered}/${online.length})`
+          : `${answered}/${online.length} hanno risposto`;
     }
   }
 
@@ -758,7 +910,7 @@
       <div class="line ${p.id === view.you ? 'me' : ''}">
         <div class="pos">${i + 1}</div>
         <div class="who-cell">${avatar(p)}<span class="name">${esc(p.name)}${p.connected ? '' : ' <span class="muted">(offline)</span>'}</span></div>
-        <div class="delta ${p.lastPoints ? '' : 'zero'}">${withDelta ? (p.lastPoints ? '+' + p.lastPoints : '+0') : p.correctCount + '/' + view.total + ' ✓'}</div>
+        <div class="delta ${p.lastPoints ? '' : 'zero'}">${withDelta ? (p.lastPoints ? '+' + p.lastPoints : '+0') : p.correctCount + ' ✓'}</div>
         <div class="pts">${p.score}</div>
       </div>`).join('');
   }
@@ -819,6 +971,89 @@
   }
   requestAnimationFrame(tick);
 
+  // ---------- preparazione: categorie e domanda personale ----------
+  const SETUP_KEY = 'domandone-setup';
+  let draft = { cats: [], custom: { q: '', options: ['', '', '', ''], correct: 0 } };
+  try {
+    const savedDraft = JSON.parse(localStorage.getItem(SETUP_KEY));
+    if (savedDraft && savedDraft.custom && Array.isArray(savedDraft.cats) && Array.isArray(savedDraft.custom.options)) {
+      draft = savedDraft;
+      draft.cats = draft.cats.filter((id) => window.CATEGORIES.some((c) => c.id === id)).slice(0, CATEGORIES_PER_PLAYER);
+    }
+  } catch {}
+
+  function saveDraft() {
+    try { localStorage.setItem(SETUP_KEY, JSON.stringify(draft)); } catch {}
+  }
+
+  function renderCatPicker() {
+    $('catPicker').innerHTML = window.CATEGORIES.map((c) => `
+      <button type="button" class="chip ${draft.cats.includes(c.id) ? 'on' : ''}" data-id="${c.id}">${c.emoji} ${esc(c.label)}</button>`).join('');
+    $('catCount').textContent = `${draft.cats.length}/${CATEGORIES_PER_PLAYER}`;
+  }
+
+  function fillSetupForm() {
+    renderCatPicker();
+    $('customQ').value = draft.custom.q;
+    for (let i = 0; i < 4; i++) {
+      $('customA' + i).value = draft.custom.options[i] || '';
+      $('customC' + i).checked = draft.custom.correct === i;
+    }
+  }
+
+  function readSetupForm() {
+    draft.custom.q = $('customQ').value;
+    draft.custom.options = [0, 1, 2, 3].map((i) => $('customA' + i).value);
+    draft.custom.correct = [0, 1, 2, 3].find((i) => $('customC' + i).checked) ?? 0;
+    saveDraft();
+  }
+
+  function setupProblem() {
+    if (draft.cats.length !== CATEGORIES_PER_PLAYER) return `Scegli ${CATEGORIES_PER_PLAYER} categorie.`;
+    const clean = cleanSetup(draft);
+    if (!cleanText(draft.custom.q, 160)) return 'Scrivi la tua domanda.';
+    if (draft.custom.options.some((o) => !cleanText(o, 60))) return 'Scrivi tutte e 4 le risposte.';
+    if (!clean.custom) return 'Le 4 risposte devono essere diverse tra loro.';
+    return null;
+  }
+
+  function sameSetup(a, b) {
+    return !!a && !!b && JSON.stringify(cleanSetup(a)) === JSON.stringify(cleanSetup(b));
+  }
+
+  function renderSetupStatus() {
+    if (!view) return;
+    const saved = view.yourSetup;
+    const ready = isReady(saved);
+    const synced = ready && sameSetup(saved, draft);
+    $('readyBtn').textContent = ready ? (synced ? '✓ Sei pronto!' : 'Salva le modifiche') : 'Sono pronto!';
+    $('readyBtn').classList.toggle('ghost', synced);
+    $('setupStatus').textContent = ready && !synced ? 'Hai modifiche non salvate.' : '';
+  }
+
+  $('catPicker').addEventListener('click', (e) => {
+    const btn = e.target.closest('.chip');
+    if (!btn) return;
+    const id = btn.dataset.id;
+    if (draft.cats.includes(id)) draft.cats = draft.cats.filter((c) => c !== id);
+    else if (draft.cats.length < CATEGORIES_PER_PLAYER) draft.cats.push(id);
+    else {
+      $('setupStatus').textContent = `Puoi scegliere al massimo ${CATEGORIES_PER_PLAYER} categorie: togline una prima.`;
+      return;
+    }
+    saveDraft();
+    renderCatPicker();
+    renderSetupStatus();
+  });
+  $('setupForm').addEventListener('input', () => { readSetupForm(); renderSetupStatus(); });
+  $('readyBtn').onclick = () => {
+    readSetupForm();
+    const problem = setupProblem();
+    if (problem) { $('setupStatus').textContent = problem; return; }
+    sendAction({ t: 'setup', setup: cleanSetup(draft) });
+  };
+  fillSetupForm();
+
   // ---------- eventi ----------
   function readName() {
     const name = cleanName($('nameInput').value);
@@ -865,7 +1100,13 @@
     sendAction({ t: 'avatar', avatar: i });
   });
 
-  $('startBtn').onclick = () => hostGame && hostGame.start();
+  $('startBtn').onclick = () => {
+    if (!hostGame) return;
+    const online = hostGame.online();
+    const notReady = online.filter((p) => !isReady(p.setup)).map((p) => p.name);
+    if (notReady.length && !confirm(`Non sono ancora pronti: ${notReady.join(', ')}.\nIniziare comunque? Le loro categorie e domande non verranno usate.`)) return;
+    hostGame.start();
+  };
   $('againBtn').onclick = () => hostGame && hostGame.start();
   $('toLobbyBtn').onclick = () => hostGame && hostGame.backToLobby();
   $('leaveBtn').onclick = leave;

@@ -1,16 +1,16 @@
 # Il Domandone 🎮📺
 
-Quiz multigiocatore da browser su **anime e videogiochi**, fino a **9 giocatori** collegati insieme, ognuno con il suo personaggio.
+Quiz multigiocatore da browser su **anime e manga, cartoni animati, videogiochi, musica, film e make-up**, fino a **9 giocatori** collegati insieme, ognuno con il suo personaggio.
 
 ## Come si gioca
 
 1. Ognuno sceglie un nickname e un'**immagine** tra 9 personaggi (frutta e verdura). Ogni giocatore ha un'immagine diversa: in lobby quelle già prese sono in grigio e si può cambiare la propria.
-2. Un giocatore crea una stanza e riceve un **codice di 4 lettere** (o un link da condividere).
-3. Gli altri entrano con il codice: tutti si ritrovano nella **lobby**.
-4. L'host avvia la partita: compaiono **10 domande** estratte a caso, ognuna con **5 risposte**. Solo una è giusta, le altre sono trabocchetti.
+2. Un giocatore crea una stanza e riceve un **codice di 4 lettere** (o un link da condividere). Gli altri entrano con il codice e si ritrovano nella **lobby**.
+3. In lobby ogni giocatore **sceglie 3 categorie** e **scrive una sua domanda** con 4 risposte, di cui una sola giusta, poi preme "Sono pronto!".
+4. L'host avvia la partita. Un round ha **5 domande per ogni giocatore** (es. 3 giocatori = 15 domande). Ogni domanda ha 5 risposte, una sola giusta. Le categorie escono **in proporzione a quante volte sono state scelte**: se 3 giocatori scelgono Film e 1 sceglie Anime, le domande sui film saranno molto più frequenti.
 5. Hai 20 secondi per rispondere. Se rispondi giusto guadagni da **1000 punti** (risposta istantanea) a **500 punti** (all'ultimo secondo): **più sei veloce, più punti fai**. Una risposta sbagliata vale 0.
-6. Dopo ogni domanda vedi la risposta corretta, chi è stato il più veloce e la classifica.
-7. Dopo 10 domande chi ha più punti **vince il round**. L'host può avviare un nuovo round o tornare alla lobby.
+6. Alla fine del round arriva la **domanda bonus** scritta da uno dei giocatori, a rotazione. L'autore non risponde, ma guadagna **250 punti per ogni giocatore che sbaglia**.
+7. Chi ha più punti **vince il round**. L'host può avviare un nuovo round o tornare alla lobby per cambiare categorie e domande.
 
 ## Come funziona il collegamento
 
@@ -48,7 +48,7 @@ Apri `http://localhost:3000`. Serve comunque una connessione a Internet per ragg
 | --- | --- |
 | `public/index.html` | Pagina e grafica del gioco. |
 | `public/app.js` | Logica di gioco (motore dell'host) e collegamento tra giocatori. |
-| `public/questions.js` | La banca domande (44 domande). |
+| `public/questions.js` | Le categorie e la banca domande (181 domande). |
 | `public/avatars/` | Le 9 immagini dei giocatori. |
 | `public/vendor/mqtt.min.js` | Libreria MQTT.js 5.16.1 (licenza MIT). |
 | `server.js` | Piccolo server di file statici per provare il gioco in locale. |
@@ -56,13 +56,13 @@ Apri `http://localhost:3000`. Serve comunque una connessione a Internet per ragg
 
 ## Aggiungere domande
 
-In `public/questions.js` aggiungi un oggetto con la domanda, la risposta corretta e 4 risposte sbagliate:
+In `public/questions.js` aggiungi alla categoria giusta un oggetto con la domanda, la risposta corretta e 4 risposte sbagliate:
 
 ```js
 { q: 'Testo della domanda?', a: 'Risposta giusta', w: ['Sbagliata 1', 'Sbagliata 2', 'Sbagliata 3', 'Sbagliata 4'] },
 ```
 
-L'ordine delle risposte viene mescolato a ogni partita.
+L'ordine delle risposte viene mescolato a ogni partita e le domande già uscite non si ripetono finché la categoria non è esaurita. Per una nuova categoria aggiungi una voce a `window.CATEGORIES` e una lista con lo stesso `id` in `window.QUESTIONS`.
 
 ## Aggiungere immagini
 
