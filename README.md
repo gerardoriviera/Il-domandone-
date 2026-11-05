@@ -32,6 +32,16 @@ Il repository contiene già `netlify.toml`, che dice a Netlify di pubblicare la 
 
 Poi condividi l'indirizzo del sito (es. `https://il-domandone.netlify.app`) con gli amici. Funziona allo stesso modo su qualsiasi hosting statico (GitHub Pages, Vercel, Cloudflare Pages…).
 
+## Pubblicare su Cloudflare
+
+Il repository contiene già `wrangler.jsonc`, che dice a Cloudflare di pubblicare la cartella `public/` come sito statico.
+
+- **Da GitHub (Workers):** nella dashboard di Cloudflare vai su *Workers & Pages → Create → Import a repository*, scegli questo repository e il branch `claude/quiz-anime-videogiochi`. Lascia vuoto il comando di build e come comando di deploy `npx wrangler deploy`.
+- **Da GitHub (Pages):** *Workers & Pages → Create → Pages → Connect to Git*, scegli il repository, preset *None*, comando di build vuoto e cartella di output `public`.
+- **Caricando i file:** *Workers & Pages → Create → Pages → Upload assets* e carica la cartella **`public`**.
+
+Ogni modifica caricata su GitHub aggiorna il sito in automatico (con i primi due metodi).
+
 ## Provarlo in locale
 
 Serve [Node.js](https://nodejs.org) 18 o superiore, senza dipendenze da installare:
@@ -53,6 +63,7 @@ Apri `http://localhost:3000`. Serve comunque una connessione a Internet per ragg
 | `public/vendor/mqtt.min.js` | Libreria MQTT.js 5.16.1 (licenza MIT). |
 | `server.js` | Piccolo server di file statici per provare il gioco in locale. |
 | `netlify.toml` | Configurazione per Netlify. |
+| `wrangler.jsonc` | Configurazione per Cloudflare. |
 
 ## Aggiungere domande
 
