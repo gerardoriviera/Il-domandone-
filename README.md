@@ -42,6 +42,8 @@ Il repository contiene già `wrangler.jsonc`, che dice a Cloudflare di pubblicar
 
 Ogni modifica caricata su GitHub aggiorna il sito in automatico (con i primi due metodi).
 
+Nelle impostazioni del progetto su Cloudflare il **production branch** deve essere `claude/quiz-anime-videogiochi`, il branch in cui si trova il codice. Se il sito non si aggiorna, controlla anche che l'app *Cloudflare Workers and Pages* su GitHub abbia accesso a questo repository.
+
 ## Provarlo in locale
 
 Serve [Node.js](https://nodejs.org) 18 o superiore, senza dipendenze da installare:
