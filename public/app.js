@@ -8,7 +8,7 @@
   const AVATARS = ['pomodoro', 'arancia', 'broccolo', 'banana', 'anguria', 'carota', 'uva', 'mela', 'ananas'];
   const MAX_PLAYERS = Math.min(10, AVATARS.length);
   const QUESTIONS_PER_PLAYER = 5; // un round ha 5 domande per ogni giocatore
-  const CATEGORIES_PER_PLAYER = 3;
+  const BOOST_WEIGHT = 3; // la categoria favorita esce circa 3 volte più spesso delle altre
   const FOOL_POINTS = 250; // punti all'autore della domanda bonus per ogni giocatore che sbaglia
   const QUESTION_TIME_MS = 20000;
   const REVEAL_TIME_MS = 6000;
@@ -56,12 +56,9 @@
   function cleanText(text, max) {
     return String(text || '').replace(/\s+/g, ' ').trim().slice(0, max);
   }
-  // Valida le scelte di un giocatore: 3 categorie diverse e una domanda con 4 risposte, 1 giusta.
+  // Valida la domanda scritta da un giocatore: 4 risposte diverse, di cui 1 giusta.
   function cleanSetup(data) {
     data = data && typeof data === 'object' ? data : {};
-    const ids = window.CATEGORIES.map((c) => c.id);
-    // la stessa categoria può essere scelta più volte per renderla più frequente
-    const cats = (Array.isArray(data.cats) ? data.cats : []).filter((c) => ids.includes(c)).slice(0, CATEGORIES_PER_PLAYER).sort();
     let custom = null;
     const c = data.custom;
     if (c && typeof c === 'object' && Array.isArray(c.options)) {
@@ -73,10 +70,10 @@
         custom = { q, options, correct };
       }
     }
-    return { cats, custom };
+    return { custom };
   }
   function isReady(setup) {
-    return !!setup && setup.cats.length === CATEGORIES_PER_PLAYER && !!setup.custom;
+    return !!setup && !!setup.custom;
   }
   function weightedPick(weights) {
     const entries = Object.entries(weights).filter(([, w]) => w > 0);
@@ -165,7 +162,10 @@
       this.qStart = 0;
       this.phaseEnds = null;
       this.timer = null;
-      this.roundCats = [];
+      this.roundBoost = null; // categoria favorita del round in corso: { cat, by }
+      this.boostCat = null;   // categoria favorita scelta per il prossimo round
+      this.pickerId = null;   // chi ha fatto meno punti nell'ultimo round e può sceglierla
+      this.pickerName = null;
       this.usedQuestions = new Set(); // domande già uscite in questa stanza ("categoria:indice")
       this.heartbeat = setInterval(() => this.checkHeartbeats(), 2000);
     }
@@ -183,6 +183,13 @@
       const avatar = this.freeAvatar(wanted, player);
       if (avatar !== Number(wanted)) return; // già presa da qualcun altro
       player.avatar = avatar;
+      this.broadcast();
+    }
+
+    setBoost(player, cat) {
+      if (this.state !== 'lobby' && this.state !== 'final') return;
+      if (player.id !== this.pickerId || !window.CATEGORIES.some((c) => c.id === cat)) return;
+      this.boostCat = cat;
       this.broadcast();
     }
 
@@ -223,6 +230,7 @@
       if (msg.t === 'answer') this.answer(player, msg.choice, msg.qIndex, msg.ms);
       else if (msg.t === 'avatar') this.setAvatar(player, msg.avatar);
       else if (msg.t === 'setup') this.setSetup(player, msg.setup);
+      else if (msg.t === 'boost') this.setBoost(player, msg.cat);
       else if (msg.t === 'leave') this.remove(player);
     }
 
@@ -299,24 +307,33 @@
       this.timer = null;
     }
 
-    // Estrae 5 domande per giocatore: ogni categoria ha probabilità proporzionale
-    // a quante volte è stata scelta dai giocatori. Dopo ogni 5 domande inserisce quella di un giocatore.
+    // Estrae 5 domande per giocatore: tutte le categorie hanno la stessa probabilità, tranne quella
+    // favorita (scelta da chi ha fatto meno punti nel round precedente), che esce più spesso.
+    // Dopo ogni 5 domande inserisce quella scritta da un giocatore.
     buildRound(participants) {
       const bank = window.QUESTIONS;
       const weights = {};
-      for (const p of participants) {
-        for (const c of (p.setup ? p.setup.cats : [])) weights[c] = (weights[c] || 0) + 1;
+      for (const c of Object.keys(bank)) weights[c] = 1;
+      this.roundBoost = null;
+      if (this.boostCat && weights[this.boostCat]) {
+        weights[this.boostCat] = BOOST_WEIGHT;
+        this.roundBoost = { cat: this.boostCat, by: this.pickerName };
       }
-      if (Object.keys(weights).length === 0) for (const c of Object.keys(bank)) weights[c] = 1;
-      this.roundCats = Object.entries(weights).map(([id, count]) => ({ id, count }));
+      this.boostCat = null;
+      this.pickerId = null;
+      this.pickerName = null;
 
+      // una domanda generata dalla banca e usata da un giocatore non esce due volte nello stesso round
+      const customTexts = new Set(participants.filter((p) => p.setup && p.setup.custom).map((p) => p.setup.custom.q.toLowerCase()));
+      const free = (cat) => bank[cat].map((item, i) => ({ item, key: `${cat}:${i}` }))
+        .filter(({ item, key }) => !pickedNow.has(key) && !customTexts.has(item.q.toLowerCase())).map(({ key }) => key);
       const pickedNow = new Set();
       const poolFor = (cat) => {
-        let pool = bank[cat].map((_, i) => `${cat}:${i}`).filter((k) => !this.usedQuestions.has(k) && !pickedNow.has(k));
+        let pool = free(cat).filter((k) => !this.usedQuestions.has(k));
         if (pool.length === 0) {
           // categoria esaurita: si ricomincia a pescare tra le sue domande già uscite in passato
           for (const k of [...this.usedQuestions]) if (k.startsWith(cat + ':')) this.usedQuestions.delete(k);
-          pool = bank[cat].map((_, i) => `${cat}:${i}`).filter((k) => !pickedNow.has(k));
+          pool = free(cat);
         }
         return pool;
       };
@@ -375,6 +392,16 @@
       if (this.qIndex >= this.questions.length) {
         this.state = 'final';
         this.phaseEnds = null;
+        // chi ha fatto meno punti sceglie la categoria favorita del prossimo round
+        const online = this.online();
+        const min = Math.min(...online.map((p) => p.score));
+        const last = online.filter((p) => p.score === min);
+        const picker = last.length ? last[randomInt(last.length)] : null;
+        this.pickerId = picker ? picker.id : null;
+        this.pickerName = picker ? picker.name : null;
+        this.boostCat = null;
+        // a ogni round i giocatori scrivono una domanda nuova
+        for (const p of this.players.values()) p.setup = null;
         // chi è offline alla fine del round ha un po' di tempo per tornare, poi esce
         for (const p of this.players.values()) {
           if (!p.connected) p.leaveTimer = setTimeout(() => !p.connected && this.remove(p), LOBBY_GRACE_MS);
@@ -497,7 +524,10 @@
         maxPlayers: MAX_PLAYERS,
         total: this.questions.length,
         bonusCount: this.questions.filter((q) => q.authorId).length,
-        roundCats: this.roundCats,
+        roundBoost: this.roundBoost,
+        boostCat: this.boostCat,
+        pickerId: this.pickerId,
+        pickerName: this.pickerName,
         yourSetup: player.setup,
         foolPoints: FOOL_POINTS,
         questionTime: QUESTION_TIME_MS,
@@ -724,6 +754,7 @@
       if (msg.t === 'answer') hostGame.answer(me, msg.choice, msg.qIndex, undefined);
       else if (msg.t === 'avatar') hostGame.setAvatar(me, msg.avatar);
       else if (msg.t === 'setup') hostGame.setSetup(me, msg.setup);
+      else if (msg.t === 'boost') hostGame.setBoost(me, msg.cat);
     } else {
       sendToHost(msg);
     }
@@ -792,6 +823,7 @@
     view = s;
     deadline = s.remainingMs != null ? performance.now() + s.remainingMs : null;
     if (s.state === 'question' && prevKey !== `question:${s.qIndex}`) questionShownAt = performance.now();
+    if (s.state === 'final' && !prevKey.startsWith('final')) clearSetupForm(); // nuovo round, nuova domanda
     if (s.state !== 'final') celebrated = false;
     if (s.state === 'lobby') renderLobby();
     else if (s.state === 'countdown') renderCountdown();
@@ -810,7 +842,9 @@
         ${avatar(p)}<div class="name">${esc(p.name)}<div class="ready ${p.ready ? 'ok' : ''}">${p.ready ? '✓ Pronto' : '⏳ Si prepara…'}</div></div>
         ${p.id === view.hostId ? '<span class="tag">HOST</span>' : p.id === view.you ? '<span class="tag you">TU</span>' : ''}
       </div>`).join('');
+    syncSetupForm();
     renderSetupStatus();
+    renderBoost($('boostLobby'));
     const online = view.players.filter((p) => p.connected);
     const ready = online.filter((p) => p.ready).length;
     $('startBtn').textContent = `Inizia la partita! (${ready}/${online.length} pronti)`;
@@ -827,14 +861,12 @@
 
   function renderCountdown() {
     show('countdown');
-    const totalPicks = view.roundCats.reduce((sum, c) => sum + c.count, 0);
     const regular = view.total - view.bonusCount;
+    const boost = view.roundBoost;
+    const info = boost && catInfo(boost.cat);
     $('roundInfo').innerHTML = `<div>Round da <b>${regular}</b> domande${view.bonusCount
       ? ` + <b>${view.bonusCount}</b> ${view.bonusCount === 1 ? 'domanda scritta da un giocatore' : 'domande scritte dai giocatori'}, una ogni ${QUESTIONS_PER_PLAYER}!` : ''}</div>
-      <div class="cat-mix">${view.roundCats.slice().sort((a, b) => b.count - a.count).map((c) => {
-        const info = catInfo(c.id);
-        return `<span class="chip on">${info.emoji} ${esc(info.label)} · ${Math.round((c.count / totalPicks) * 100)}%</span>`;
-      }).join('')}</div>`;
+      ${boost ? `<div class="cat-mix"><span class="chip on">🎯 Categoria favorita: ${info.emoji} ${esc(info.label)}${boost.by ? ' · scelta da ' + esc(boost.by) : ''}</span></div>` : ''}`;
   }
 
   function renderGame() {
@@ -927,7 +959,7 @@
       : '<div></div>';
     $('podium').innerHTML = step(p2, 'p2', 2) + step(p1, 'p1', 1) + step(p3, 'p3', 3);
     renderBoard($('finalBoard'), false);
-    $('againBtn').classList.toggle('hidden', !isHost());
+    renderBoost($('boostFinal'));
     $('toLobbyBtn').classList.toggle('hidden', !isHost());
     $('finalWait').classList.toggle('hidden', isHost());
     if (!celebrated) {
@@ -970,32 +1002,12 @@
   }
   requestAnimationFrame(tick);
 
-  // ---------- preparazione: categorie e domanda personale ----------
-  const SETUP_KEY = 'domandone-setup';
-  let draft = { cats: [], custom: { q: '', options: ['', '', '', ''], correct: 0 } };
-  try {
-    const savedDraft = JSON.parse(localStorage.getItem(SETUP_KEY));
-    if (savedDraft && savedDraft.custom && Array.isArray(savedDraft.cats) && Array.isArray(savedDraft.custom.options)) {
-      draft = savedDraft;
-      draft.cats = draft.cats.filter((id) => window.CATEGORIES.some((c) => c.id === id)).slice(0, CATEGORIES_PER_PLAYER);
-    }
-  } catch {}
-
-  function saveDraft() {
-    try { localStorage.setItem(SETUP_KEY, JSON.stringify(draft)); } catch {}
-  }
-
-  function renderCatPicker() {
-    $('catPicker').innerHTML = window.CATEGORIES.map((c) => {
-      const n = draft.cats.filter((id) => id === c.id).length;
-      return `<button type="button" class="chip ${n ? 'on' : ''}" data-id="${c.id}">${c.emoji} ${esc(c.label)}${
-        n ? ` <b class="chip-n">×${n}</b><span class="chip-x" data-remove="${c.id}" title="Togli una scelta">✕</span>` : ''}</button>`;
-    }).join('');
-    $('catCount').textContent = `${draft.cats.length}/${CATEGORIES_PER_PLAYER}`;
-  }
+  // ---------- preparazione: la domanda scritta dal giocatore ----------
+  const emptyDraft = () => ({ custom: { q: '', options: ['', '', '', ''], correct: 0 } });
+  let draft = emptyDraft();
+  const draftIsEmpty = () => !draft.custom.q.trim() && draft.custom.options.every((o) => !o.trim());
 
   function fillSetupForm() {
-    renderCatPicker();
     $('customQ').value = draft.custom.q;
     for (let i = 0; i < 4; i++) {
       $('customA' + i).value = draft.custom.options[i] || '';
@@ -1007,11 +1019,37 @@
     draft.custom.q = $('customQ').value;
     draft.custom.options = [0, 1, 2, 3].map((i) => $('customA' + i).value);
     draft.custom.correct = [0, 1, 2, 3].find((i) => $('customC' + i).checked) ?? 0;
-    saveDraft();
+  }
+
+  // A ogni round si riparte con i campi vuoti.
+  function clearSetupForm() {
+    draft = emptyDraft();
+    fillSetupForm();
+    $('setupStatus').textContent = '';
+  }
+
+  // Dopo un ricaricamento della pagina, recupera la domanda già inviata all'host.
+  function syncSetupForm() {
+    const saved = view && view.yourSetup && view.yourSetup.custom;
+    if (saved && draftIsEmpty()) {
+      draft = { custom: { q: saved.q, options: saved.options.slice(), correct: saved.correct } };
+      fillSetupForm();
+    }
+  }
+
+  // Riempie i campi con una domanda a caso della banca, che poi si può modificare.
+  function generateQuestion() {
+    const all = Object.values(window.QUESTIONS).flat();
+    let item;
+    do { item = all[randomInt(all.length)]; } while (all.length > 1 && item.q === draft.custom.q);
+    const options = shuffle([item.a, ...item.w]);
+    draft = { custom: { q: item.q, options, correct: options.indexOf(item.a) } };
+    fillSetupForm();
+    $('setupStatus').textContent = '';
+    renderSetupStatus();
   }
 
   function setupProblem() {
-    if (draft.cats.length !== CATEGORIES_PER_PLAYER) return `Scegli ${CATEGORIES_PER_PLAYER} categorie.`;
     const clean = cleanSetup(draft);
     if (!cleanText(draft.custom.q, 160)) return 'Scrivi la tua domanda.';
     if (draft.custom.options.some((o) => !cleanText(o, 60))) return 'Scrivi tutte e 4 le risposte.';
@@ -1030,35 +1068,46 @@
     const synced = ready && sameSetup(saved, draft);
     $('readyBtn').textContent = ready ? (synced ? '✓ Sei pronto!' : 'Salva le modifiche') : 'Sono pronto!';
     $('readyBtn').classList.toggle('ghost', synced);
-    $('setupStatus').textContent = ready && !synced ? 'Hai modifiche non salvate.' : '';
+    if (ready) $('setupStatus').textContent = synced ? '' : 'Hai modifiche non salvate.';
   }
 
-  $('catPicker').addEventListener('click', (e) => {
-    const btn = e.target.closest('.chip');
-    if (!btn) return;
-    const id = btn.dataset.id;
-    const remove = e.target.closest('.chip-x');
-    $('setupStatus').textContent = '';
-    if (remove) {
-      draft.cats.splice(draft.cats.lastIndexOf(id), 1);
-    } else if (draft.cats.length < CATEGORIES_PER_PLAYER) {
-      draft.cats.push(id);
-    } else {
-      $('setupStatus').textContent = `Hai già scelto ${CATEGORIES_PER_PLAYER} categorie: togline una con ✕ per cambiarle.`;
-      return;
-    }
-    saveDraft();
-    renderCatPicker();
-    renderSetupStatus();
-  });
   $('setupForm').addEventListener('input', () => { readSetupForm(); renderSetupStatus(); });
+  $('generateBtn').onclick = generateQuestion;
   $('readyBtn').onclick = () => {
     readSetupForm();
     const problem = setupProblem();
     if (problem) { $('setupStatus').textContent = problem; return; }
+    $('setupStatus').textContent = '';
     sendAction({ t: 'setup', setup: cleanSetup(draft) });
   };
   fillSetupForm();
+
+  // ---------- categoria favorita: la sceglie chi ha fatto meno punti ----------
+  function renderBoost(el) {
+    el.classList.toggle('hidden', !view.pickerId);
+    if (!view.pickerId) return;
+    const mine = view.pickerId === view.you;
+    const chosen = view.boostCat && catInfo(view.boostCat);
+    const who = esc(view.pickerName || 'Un giocatore');
+    let text;
+    if (mine) {
+      text = chosen
+        ? `Hai scelto <b>${chosen.emoji} ${esc(chosen.label)}</b>: uscirà più spesso nel prossimo round. Puoi ancora cambiarla.`
+        : 'Hai fatto meno punti: scegli una categoria che uscirà più spesso nel prossimo round!';
+    } else {
+      text = chosen
+        ? `${who} ha scelto <b>${chosen.emoji} ${esc(chosen.label)}</b>: uscirà più spesso nel prossimo round.`
+        : `${who} ha fatto meno punti e sta scegliendo la categoria favorita del prossimo round…`;
+    }
+    el.innerHTML = `<h3>🎯 Categoria favorita</h3><div>${text}</div>${mine ? `<div class="chips">${window.CATEGORIES.map((c) => `
+      <button type="button" class="chip ${c.id === view.boostCat ? 'on' : ''}" data-id="${c.id}">${c.emoji} ${esc(c.label)}</button>`).join('')}</div>` : ''}`;
+  }
+  for (const id of ['boostLobby', 'boostFinal']) {
+    $(id).addEventListener('click', (e) => {
+      const btn = e.target.closest('.chip');
+      if (btn && view && view.pickerId === view.you) sendAction({ t: 'boost', cat: btn.dataset.id });
+    });
+  }
 
   // ---------- eventi ----------
   function readName() {
@@ -1110,10 +1159,9 @@
     if (!hostGame) return;
     const online = hostGame.online();
     const notReady = online.filter((p) => !isReady(p.setup)).map((p) => p.name);
-    if (notReady.length && !confirm(`Non sono ancora pronti: ${notReady.join(', ')}.\nIniziare comunque? Le loro categorie e domande non verranno usate.`)) return;
+    if (notReady.length && !confirm(`Non sono ancora pronti: ${notReady.join(', ')}.\nIniziare comunque? Le loro domande non usciranno in questo round.`)) return;
     hostGame.start();
   };
-  $('againBtn').onclick = () => hostGame && hostGame.start();
   $('toLobbyBtn').onclick = () => hostGame && hostGame.backToLobby();
   $('leaveBtn').onclick = leave;
   $('leaveBtn2').onclick = leave;

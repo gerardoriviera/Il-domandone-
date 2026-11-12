@@ -144,6 +144,9 @@
   }
   textarea:focus { border-color: var(--accent); }
   .hint { font-size: .8rem; margin-top: 6px; }
+  .label-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+  .label-row label { margin: 0; }
+  button.small { padding: 8px 12px; font-size: .9rem; }
   .chips, .cat-mix { display: flex; flex-wrap: wrap; gap: 8px; }
   .cat-mix { justify-content: center; margin-top: 10px; }
   .chip { padding: 9px 14px; border-radius: 99px; background: #ffffff14; color: var(--text); border: 2px solid transparent; font-weight: 700; font-size: .95rem; }
@@ -163,7 +166,6 @@
   @keyframes fall { to { transform: translateY(110vh) rotate(720deg); } }
   @media (min-width: 640px) {
     .answers { grid-template-columns: 1fr 1fr; }
-    .answers .answer:nth-child(5) { grid-column: 1 / -1; }
   }
 </style>
 </head>
@@ -173,7 +175,7 @@
   <!-- HOME -->
   <section id="home">
     <div class="logo">Il <span>Domandone</span></div>
-    <div class="subtitle">Quiz multigiocatore con 19 categorie, da anime e Pokémon a Caparezza e Hyrox · fino a 9 giocatori</div>
+    <div class="subtitle">Quiz multigiocatore di cultura generale con 10 categorie · fino a 9 giocatori</div>
     <div class="card stack">
       <div>
         <label for="nameInput">Il tuo nickname</label>
@@ -193,7 +195,7 @@
       <div id="homeError" class="error"></div>
     </div>
     <p class="center muted" style="margin-top:20px;font-size:.9rem">
-      5 domande per giocatore · una sola risposta è giusta · più sei veloce, più punti fai!
+      5 domande per giocatore · 4 risposte, una sola è giusta · occhio ai trabocchetti!
     </p>
   </section>
 
@@ -216,17 +218,16 @@
       <div class="muted" style="font-size:.85rem">Ogni giocatore ha un'immagine diversa: quelle in grigio sono già state scelte.</div>
       <div class="avatar-grid" id="lobbyAvatars"></div>
     </div>
+    <div class="card stack hidden" id="boostLobby"></div>
     <div class="card stack" id="setupForm">
       <h3>Prepara la partita</h3>
       <div>
-        <label>Scegli 3 categorie <span id="catCount" class="muted"></span> · puoi ripetere la stessa più volte</label>
-        <div class="chips" id="catPicker"></div>
-        <div class="muted hint">Le domande del round escono in proporzione alle categorie scelte da tutti i giocatori.</div>
-      </div>
-      <div>
-        <label for="customQ">Scrivi una domanda per gli altri</label>
+        <div class="label-row">
+          <label for="customQ">Scrivi una domanda per gli altri</label>
+          <button id="generateBtn" type="button" class="ghost small">🎲 Genera</button>
+        </div>
         <textarea id="customQ" maxlength="160" rows="2" placeholder="Es. Qual è il mio anime preferito?"></textarea>
-        <div class="muted hint">In ogni round escono le domande di tutti i giocatori, una ogni 5. L'autore non risponde, ma guadagna punti per ogni giocatore che sbaglia!</div>
+        <div class="muted hint">Non hai idee? Premi "Genera" per averne una già pronta, poi modificala come vuoi. In ogni round escono le domande di tutti i giocatori, una ogni 5: l'autore non risponde, ma guadagna punti per ogni giocatore che sbaglia!</div>
       </div>
       <div class="custom-answers">
         <label>4 risposte · segna quella giusta</label>
@@ -282,10 +283,10 @@
       <h3>Classifica finale</h3>
       <div class="board" id="finalBoard"></div>
     </div>
+    <div class="card stack hidden" id="boostFinal"></div>
     <div class="card stack center">
-      <button id="againBtn" style="width:100%;font-size:1.1rem">Gioca un altro round</button>
-      <button id="toLobbyBtn" class="ghost">Torna alla lobby</button>
-      <div id="finalWait" class="muted">In attesa che l'host avvii un nuovo round…</div>
+      <button id="toLobbyBtn" style="width:100%;font-size:1.1rem">Prossimo round</button>
+      <div id="finalWait" class="muted">In attesa che l'host passi al prossimo round…</div>
       <button id="leaveBtn2" class="ghost">Esci</button>
     </div>
   </section>
