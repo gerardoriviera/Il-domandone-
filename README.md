@@ -63,7 +63,7 @@ Apri `http://localhost:3000`. Serve comunque una connessione a Internet per ragg
 | --- | --- |
 | `public/index.html` | Pagina e grafica del gioco. |
 | `public/app.js` | Logica di gioco (motore dell'host) e collegamento tra giocatori. |
-| `public/questions.js` | Le 10 categorie e la banca domande (421 domande). |
+| `public/questions.js` | Le 10 categorie e la banca domande (2148 domande, oltre 200 per categoria). |
 | `public/avatars/` | Le 9 immagini dei giocatori. |
 | `public/vendor/mqtt.min.js` | Libreria MQTT.js 5.16.1 (licenza MIT). |
 | `server.js` | Piccolo server di file statici per provare il gioco in locale. |
