@@ -26,7 +26,9 @@ Nella schermata iniziale si può creare una stanza **Classico** o una stanza **P
 
 ### La risposta sbagliata 🙃 e i power-up ⚡
 
-Nel Plus, dopo ogni blocco di 5 domande (prima della domanda o del disegno di un giocatore) arriva una sessione speciale: **La risposta sbagliata**. Sono 3 domande lampo (7 secondi) con solo 2 risposte, una vera e una falsa: **fa punti chi sceglie quella falsa** (da 150 a 100 punti, meno delle domande normali).
+Nel Plus, dopo ogni blocco di 5 domande (prima della domanda o del disegno di un giocatore) arriva una sessione speciale: **La risposta sbagliata**. Sono 3 domande lampo con solo 2 risposte, una vera e una falsa, prese da una banca dedicata di 100 domande (`window.WRONG_SESSION_QUESTIONS` in `public/questions.js`, 10 per categoria): **fa punti chi sceglie quella falsa** (da 150 a 100 punti, meno delle domande normali).
+
+Ognuno gioca **al proprio ritmo**: hai **5 secondi** per domanda e, appena rispondi (o il tempo scade), passi subito alla successiva. **Chi risponde per primo a tutte e 3** prende **100 punti bonus**, che contano per vincere la sessione. Lo schermo mostra a che punto sono gli altri giocatori.
 
 A fine sessione:
 - chi ha fatto più punti nella sessione riceve un **power-up** a caso;
@@ -90,7 +92,7 @@ Apri `http://localhost:3000`. Serve comunque una connessione a Internet per ragg
 | --- | --- |
 | `public/index.html` | Pagina e grafica del gioco. |
 | `public/app.js` | Logica di gioco (motore dell'host) e collegamento tra giocatori. |
-| `public/questions.js` | Le 10 categorie e la banca domande (2148 domande, oltre 200 per categoria). |
+| `public/questions.js` | Le 10 categorie, la banca domande (2148 domande, oltre 200 per categoria) e le 100 domande della sessione "La risposta sbagliata". |
 | `public/avatars/` | Le 9 immagini dei giocatori. |
 | `public/vendor/mqtt.min.js` | Libreria MQTT.js 5.16.1 (licenza MIT). |
 | `server.js` | Piccolo server di file statici per provare il gioco in locale. |
