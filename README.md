@@ -24,6 +24,24 @@ Nella schermata iniziale si può creare una stanza **Classico** o una stanza **P
 - l'autore di un **disegno** guadagna **250 punti per ogni giocatore che indovina**;
 - chi indovina una domanda o un disegno di un giocatore prende **200 punti bonus**, oltre ai punti per la velocità.
 
+### La risposta sbagliata 🙃 e i power-up ⚡
+
+Nel Plus, dopo ogni blocco di 5 domande (prima della domanda o del disegno di un giocatore) arriva una sessione speciale: **La risposta sbagliata**. Sono 3 domande lampo (7 secondi) con solo 2 risposte, una vera e una falsa: **fa punti chi sceglie quella falsa** (da 150 a 100 punti, meno delle domande normali).
+
+A fine sessione:
+- chi ha fatto più punti nella sessione riceve un **power-up** a caso;
+- chi ha meno punti nella classifica generale riceve a caso **50/50** o **x2**.
+
+| Power-up | Effetto |
+| --- | --- |
+| 50/50 | Elimina due delle tre risposte sbagliate |
+| x2 | Se rispondi giusto, prendi il doppio dei punti |
+| x_x | Un avversario a caso non prende punti in quella domanda, anche se risponde giusto |
+| -300 | Toglie subito 300 punti a tutti gli avversari |
+| - - | Gli avversari hanno metà del tempo rimasto per rispondere |
+
+I power-up si usano durante le domande normali (non in quelle dei giocatori né nella risposta sbagliata), prima di rispondere, uno per domanda. Quelli non usati restano anche per il round successivo. In lobby il pulsante "⚡ Power-up: legenda" mostra la spiegazione.
+
 ## Come funziona il collegamento
 
 Il gioco è un **sito statico**: non serve un server tuo sempre acceso.

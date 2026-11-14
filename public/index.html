@@ -146,6 +146,19 @@
   .hint { font-size: .8rem; margin-top: 6px; }
   .label-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
   .label-row label { margin: 0; }
+  .answers.two { grid-template-columns: 1fr 1fr; }
+  .answer.gone { opacity: .12 !important; filter: grayscale(1); }
+  .q-cat.wrong-cat { background: color-mix(in srgb, var(--bad) 35%, transparent); }
+  .wrong-hint { text-align: center; font-size: 1.15rem; font-weight: 800; color: var(--bad); margin-bottom: 10px; }
+  .power-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; margin-top: 14px; }
+  .chip.power { background: linear-gradient(135deg, #ff7ab6, #b05cff); color: #fff; }
+  .chip.power:disabled { opacity: .4; }
+  .power-feed { text-align: center; margin-top: 10px; font-size: .9rem; color: var(--accent); }
+  .pw-mini { font-size: .7rem; font-weight: 800; color: #ff7ab6; margin-left: 4px; }
+  .award { display: flex; gap: 12px; align-items: center; padding: 10px; border-radius: 12px; background: #0003; }
+  .award .avatar { width: 54px; height: 54px; }
+  .legend-row { display: flex; gap: 10px; align-items: center; }
+  .legend-row .chip { flex: none; min-width: 64px; text-align: center; }
   .mode-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .mode-pick button { line-height: 1.35; padding: 14px 10px; }
   .mode-pick b { font-size: 1.05rem; }
@@ -215,6 +228,7 @@
   <section id="lobby" class="hidden stack">
     <div class="card stack center">
       <div class="mode-badge" id="modeBadge">Il Domandone</div>
+      <button id="legendBtn" type="button" class="ghost small hidden">⚡ Power-up: legenda</button>
       <div class="muted">Codice stanza</div>
       <div class="room-code" id="lobbyCode">----</div>
       <div class="share">
@@ -232,6 +246,11 @@
       <div class="avatar-grid" id="lobbyAvatars"></div>
     </div>
     <div class="card stack hidden" id="boostLobby"></div>
+    <div class="card stack hidden" id="legend">
+      <h3>⚡ Power-up</h3>
+      <div class="muted hint">Nel Plus, dopo ogni 5 domande arriva <b>La risposta sbagliata</b>: 3 domande lampo con 2 risposte, e fa punti chi sceglie quella <b>sbagliata</b>. Chi vince la sessione riceve un power-up a caso; chi è ultimo in classifica riceve 50/50 o x2. I power-up si usano durante le domande normali, prima di rispondere, uno per domanda; quelli non usati restano anche per il round successivo.</div>
+      <div id="legendList" class="stack"></div>
+    </div>
     <div class="card stack" id="setupForm">
       <div class="label-row">
         <h3 style="margin:0">Prepara la partita</h3>
@@ -291,14 +310,24 @@
     <div class="timer"><div id="timerBar"></div></div>
     <div id="resultBanner" class="banner hidden"></div>
     <div class="q-cat" id="qCat"></div>
+    <div id="wrongHint" class="wrong-hint hidden">🙃 Scegli la risposta <b>SBAGLIATA</b>!</div>
     <canvas id="qDrawing" class="draw-canvas q-drawing hidden" width="600" height="600"></canvas>
     <div class="card question" id="qText"></div>
     <div class="answers" id="answers"></div>
+    <div id="powerBar" class="power-bar hidden"></div>
+    <div id="powerFeed" class="power-feed hidden"></div>
     <div class="status" id="qStatus"></div>
     <div id="revealBoard" class="card stack hidden" style="margin-top:16px">
       <h3>Classifica</h3>
       <div class="board" id="board"></div>
     </div>
+  </section>
+
+  <!-- POWER-UP: fine della sessione "La risposta sbagliata" -->
+  <section id="powerup" class="hidden stack">
+    <div class="logo" style="font-size:2rem">🙃 Fine de <span>La risposta sbagliata</span></div>
+    <div class="card stack" id="awardBox"></div>
+    <div class="center muted">Si riparte tra poco…</div>
   </section>
 
   <!-- FINALE -->

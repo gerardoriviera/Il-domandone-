@@ -17,6 +17,22 @@
   const DRAW_MAX_POINTS = 4000; // limite di punti per disegno, per tenere piccoli i messaggi
   const QUESTION_TIME_MS = 20000;
   const REVEAL_TIME_MS = 6000;
+  // Plus: sessione "La risposta sbagliata" (fa punti chi sceglie la risposta falsa)
+  const WRONG_QUESTIONS = 3;
+  const WRONG_TIME_MS = 7000;
+  const WRONG_REVEAL_MS = 3500;
+  const WRONG_MAX_POINTS = 150;
+  const WRONG_MIN_POINTS = 100;
+  const POWERUP_SCREEN_MS = 7000;
+  // Power-up del Plus (si usano durante le domande normali, prima di rispondere, uno per domanda)
+  const POWERUPS = {
+    fifty: { label: '50/50', desc: 'Elimina due delle tre risposte sbagliate: restano quella giusta e una sbagliata.' },
+    x2: { label: 'x2', desc: 'Se rispondi giusto, prendi il doppio dei punti.' },
+    xx: { label: 'x_x', desc: 'Un avversario a caso non prende punti in questa domanda, anche se risponde giusto.' },
+    minus300: { label: '-300', desc: 'Toglie subito 300 punti a tutti gli avversari.' },
+    slow: { label: '- -', desc: 'Gli avversari hanno metà del tempo rimasto per rispondere.' },
+  };
+  const LAST_PLACE_POWERUPS = ['fifty', 'x2']; // per chi è ultimo in classifica
   const COUNTDOWN_MS = 3000;
   const MAX_POINTS = 750; // punti per una risposta corretta immediata: la rapidità vale al massimo 250 punti
   const MIN_POINTS = 500; // punti per una risposta corretta data all'ultimo istante
@@ -113,9 +129,9 @@
     return entries[entries.length - 1][0];
   }
 
-  function pointsFor(ms) {
-    const ratio = Math.min(Math.max(ms / QUESTION_TIME_MS, 0), 1);
-    return Math.round(MAX_POINTS - (MAX_POINTS - MIN_POINTS) * ratio);
+  function pointsFor(ms, time = QUESTION_TIME_MS, max = MAX_POINTS, min = MIN_POINTS) {
+    const ratio = Math.min(Math.max(ms / time, 0), 1);
+    return Math.round(max - (max - min) * ratio);
   }
   function parse(payload) {
     try {
@@ -230,7 +246,7 @@
 
     addPlayer(name, send, avatar) {
       const player = {
-        id: makeId(), token: makeId(), name, avatar: this.freeAvatar(avatar), setup: null, score: 0, correctCount: 0, answer: null,
+        id: makeId(), token: makeId(), name, avatar: this.freeAvatar(avatar), setup: null, score: 0, correctCount: 0, answer: null, powerups: [],
         connected: true, send, conn: null, lastSeen: Date.now(), leaveTimer: null,
       };
       this.players.set(player.id, player);
@@ -257,6 +273,7 @@
         return;
       }
       if (msg.t === 'answer') this.answer(player, msg.choice, msg.qIndex, msg.ms);
+      else if (msg.t === 'power') this.usePowerup(player, msg.type);
       else if (msg.t === 'avatar') this.setAvatar(player, msg.avatar);
       else if (msg.t === 'setup') this.setSetup(player, msg.setup);
       else if (msg.t === 'boost') this.setBoost(player, msg.cat);
@@ -394,10 +411,34 @@
           kind: c.kind || 'question', drawing: c.drawing || null, authorId: author.id, authorName: author.name,
         };
       });
+      // Plus: dopo ogni blocco di 5 domande, prima della domanda del giocatore, "La risposta sbagliata":
+      // 3 domande con 2 risposte (una vera e una falsa); fa punti chi sceglie quella falsa.
+      const wrongSession = (session) => {
+        const out = [];
+        for (let i = 0; i < WRONG_QUESTIONS; i++) {
+          const cats = Object.keys(bank).filter((c) => poolFor(c).length > 0);
+          if (!cats.length) break;
+          const cat = cats[randomInt(cats.length)];
+          const pool = poolFor(cat);
+          const key = pool[randomInt(pool.length)];
+          pickedNow.add(key);
+          this.usedQuestions.add(key);
+          const item = bank[cat][Number(key.split(':')[1])];
+          const falsa = item.w[randomInt(item.w.length)];
+          const options = shuffle([item.a, falsa]);
+          // `correct` è la risposta che fa punti, cioè quella sbagliata; `truth` è quella vera
+          out.push({ q: item.q, options, correct: options.indexOf(falsa), truth: options.indexOf(item.a), cat, type: 'wrong', session, step: i });
+        }
+        return out;
+      };
       const round = [];
+      let session = 0;
       questions.forEach((q, i) => {
         round.push(q);
-        if ((i + 1) % QUESTIONS_PER_PLAYER === 0 && customs.length) round.push(customs.shift());
+        if ((i + 1) % QUESTIONS_PER_PLAYER === 0) {
+          if (this.mode === 'plus') round.push(...wrongSession(session++));
+          if (customs.length) round.push(customs.shift());
+        }
       });
       return round.concat(customs);
     }
@@ -411,7 +452,9 @@
         p.score = 0;
         p.correctCount = 0;
         p.answer = null;
+        p.powerups = p.powerups || []; // i power-up non usati restano per il round successivo
       }
+      this.award = null;
       this.state = 'countdown';
       this.phaseEnds = Date.now() + COUNTDOWN_MS;
       this.timer = setTimeout(() => this.nextQuestion(), COUNTDOWN_MS);
@@ -441,11 +484,23 @@
         this.broadcast();
         return;
       }
-      for (const p of this.players.values()) p.answer = null;
+      const q = this.questions[this.qIndex];
+      const time = q.type === 'wrong' ? WRONG_TIME_MS : QUESTION_TIME_MS;
+      for (const p of this.players.values()) {
+        p.answer = null;
+        if (q.type === 'wrong' && q.step === 0) p.sessionPoints = 0;
+        // effetti dei power-up: valgono solo per la domanda in cui vengono usati
+        p.usedPower = null;
+        p.hidden = null;
+        p.double = false;
+        p.zeroed = false;
+        p.deadline = null;
+      }
+      this.effects = [];
       this.state = 'question';
       this.qStart = Date.now();
-      this.phaseEnds = this.qStart + QUESTION_TIME_MS;
-      this.timer = setTimeout(() => this.reveal(), QUESTION_TIME_MS);
+      this.phaseEnds = this.qStart + time;
+      this.timer = setTimeout(() => this.reveal(), time);
       this.broadcast();
     }
 
@@ -453,6 +508,8 @@
       choice = Number(choice);
       if (this.state !== 'question' || Number(qIndex) !== this.qIndex || player.answer) return;
       if (this.questions[this.qIndex].authorId === player.id) return; // l'autore non risponde alla sua domanda
+      if (player.deadline && Date.now() > player.deadline) return; // tempo dimezzato da un power-up e scaduto
+      if (player.hidden && player.hidden.includes(Number(choice))) return; // risposta eliminata dal 50/50
       if (!Number.isInteger(choice) || choice < 0 || choice >= this.questions[this.qIndex].options.length) return;
       // Il tempo misurato dall'host include la latenza di rete: usiamo quello misurato dal
       // giocatore, ma solo entro un margine di 2 secondi da quello dell'host.
@@ -468,7 +525,8 @@
       if (this.state !== 'question') return;
       const authorId = this.questions[this.qIndex].authorId;
       const online = this.online().filter((p) => p.id !== authorId);
-      if (online.length === 0 || online.every((p) => p.answer)) {
+      const done = (p) => p.answer || (p.deadline && Date.now() > p.deadline);
+      if (online.length === 0 || online.every(done)) {
         this.clearTimer();
         this.timer = setTimeout(() => this.reveal(), 600);
       }
@@ -483,9 +541,17 @@
       for (const p of this.players.values()) {
         if (!p.answer) continue;
         const ok = p.answer.choice === q.correct;
+        if (q.type === 'wrong') {
+          p.answer.points = ok ? pointsFor(p.answer.ms, WRONG_TIME_MS, WRONG_MAX_POINTS, WRONG_MIN_POINTS) : 0;
+          p.sessionPoints = (p.sessionPoints || 0) + p.answer.points;
+          p.score += p.answer.points;
+          continue;
+        }
         // nel Plus chi indovina la domanda o il disegno di un giocatore prende anche un bonus
         p.answer.bonus = ok && q.authorId && this.mode === 'plus' ? GUESS_BONUS : 0;
         p.answer.points = ok ? pointsFor(p.answer.ms) + p.answer.bonus : 0;
+        if (ok && p.double) p.answer.points *= 2; // power-up x2
+        if (p.zeroed) p.answer.points = 0;         // colpito da x_x
         p.score += p.answer.points;
         if (ok) { p.correctCount++; guessed++; } else fooled++;
       }
@@ -500,8 +566,68 @@
         author.score += points;
       }
       this.state = 'reveal';
-      this.phaseEnds = Date.now() + REVEAL_TIME_MS;
-      this.timer = setTimeout(() => this.nextQuestion(), REVEAL_TIME_MS);
+      const revealMs = q.type === 'wrong' ? WRONG_REVEAL_MS : REVEAL_TIME_MS;
+      this.phaseEnds = Date.now() + revealMs;
+      const endsSession = q.type === 'wrong' && q.step === WRONG_QUESTIONS - 1;
+      this.timer = setTimeout(() => (endsSession ? this.giveAwards() : this.nextQuestion()), revealMs);
+      this.broadcast();
+    }
+
+    // Fine della sessione "La risposta sbagliata": power-up a chi ha fatto più punti nella sessione
+    // e a chi è ultimo nella classifica generale.
+    giveAwards() {
+      this.clearTimer();
+      const online = this.online();
+      const pick = (list) => list[randomInt(list.length)];
+      const best = Math.max(0, ...online.map((p) => p.sessionPoints || 0));
+      const winner = best > 0 ? pick(online.filter((p) => (p.sessionPoints || 0) === best)) : null;
+      const minScore = Math.min(...online.map((p) => p.score));
+      const last = online.length > 1 ? pick(online.filter((p) => p.score === minScore)) : null;
+      this.award = { winner: null, last: null };
+      if (winner) {
+        const type = pick(Object.keys(POWERUPS));
+        winner.powerups.push(type);
+        this.award.winner = { id: winner.id, name: winner.name, points: best, type };
+      }
+      if (last) {
+        const type = pick(LAST_PLACE_POWERUPS);
+        last.powerups.push(type);
+        this.award.last = { id: last.id, name: last.name, type };
+      }
+      this.state = 'powerup';
+      this.phaseEnds = Date.now() + POWERUP_SCREEN_MS;
+      this.timer = setTimeout(() => this.nextQuestion(), POWERUP_SCREEN_MS);
+      this.broadcast();
+    }
+
+    usePowerup(player, type) {
+      const q = this.questions[this.qIndex];
+      if (this.state !== 'question' || !q || q.type === 'wrong' || q.authorId) return;
+      if (player.answer || player.usedPower || !POWERUPS[type]) return;
+      const i = (player.powerups || []).indexOf(type);
+      if (i < 0) return;
+      player.powerups.splice(i, 1);
+      player.usedPower = type;
+      const opponents = this.online().filter((p) => p !== player);
+      const effect = { by: player.name, type, target: null };
+      if (type === 'fifty') {
+        const wrong = q.options.map((_, k) => k).filter((k) => k !== q.correct);
+        player.hidden = shuffle(wrong).slice(0, 2);
+      } else if (type === 'x2') {
+        player.double = true;
+      } else if (type === 'xx' && opponents.length) {
+        const target = opponents[randomInt(opponents.length)];
+        target.zeroed = true;
+        effect.target = target.name;
+      } else if (type === 'minus300') {
+        for (const p of opponents) p.score = Math.max(0, p.score - 300);
+      } else if (type === 'slow') {
+        const now = Date.now();
+        const half = Math.max(0, this.phaseEnds - now) / 2;
+        for (const p of opponents) if (!p.answer) p.deadline = Math.min(p.deadline || Infinity, now + half);
+        setTimeout(() => this.maybeEndQuestionEarly(), half + 100);
+      }
+      this.effects.push(effect);
       this.broadcast();
     }
 
@@ -509,6 +635,7 @@
       this.clearTimer();
       this.state = 'lobby';
       this.phaseEnds = null;
+      this.award = null;
       this.questions = [];
       this.qIndex = -1;
       for (const p of [...this.players.values()]) {
@@ -549,6 +676,8 @@
           lastPoints: p.answer ? p.answer.points : null,
           lastMs: p.answer ? p.answer.ms : null,
           lastChoice: this.state === 'reveal' && p.answer && p.answer.choice != null ? p.answer.choice : null,
+          powerups: p.powerups || [],
+          sessionPoints: p.sessionPoints || 0,
         }))
         .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
     }
@@ -572,18 +701,27 @@
         drawPoints: DRAW_POINTS,
         guessBonus: GUESS_BONUS,
         questionTime: QUESTION_TIME_MS,
-        remainingMs: this.phaseEnds ? Math.max(0, this.phaseEnds - Date.now()) : null,
+        remainingMs: this.phaseEnds ? Math.max(0, Math.min(this.phaseEnds, player.deadline || Infinity) - Date.now()) : null,
+        wrongCount: this.questions.filter((q) => q.type === 'wrong').length,
+        myPowerups: player.powerups || [],
+        award: this.state === 'powerup' ? this.award : null,
         players,
       };
       if (this.state === 'question' || this.state === 'reveal') {
         const q = this.questions[this.qIndex];
         view.qIndex = this.qIndex;
-        view.question = { text: q.q, options: q.options, cat: q.cat, author: q.authorName || null, kind: q.kind || 'question' };
+        view.question = { text: q.q, options: q.options, cat: q.cat, author: q.authorName || null, kind: q.kind || 'question', type: q.type || (q.authorId ? 'custom' : 'normal') };
+        if (q.type === 'wrong') { view.question.step = q.step; view.questionTime = WRONG_TIME_MS; }
+        view.hidden = player.hidden || [];
+        view.usedPower = player.usedPower || null;
+        view.slowed = !!player.deadline;
+        view.effects = this.effects || [];
         if (q.kind === 'drawing') view.question.drawing = q.drawing;
         view.isAuthor = q.authorId === player.id;
         view.yourAnswer = player.answer ? player.answer.choice : null;
         if (this.state === 'reveal') {
           view.question.correct = q.correct;
+          if (q.type === 'wrong') view.question.truth = q.truth;
           view.question.fooled = q.fooled || 0;
           view.question.guessed = q.guessed || 0;
           view.yourPoints = player.answer ? player.answer.points : 0;
@@ -645,6 +783,7 @@
       const code = makeRoomCode();
       const game = new HostGame(code, mode);
       hostGame = game;
+      if (window.DOMANDONE_DEBUG) window.__domandoneHost = game; // solo per i test automatici
       const me = game.addPlayer(name, (v) => onState(v), avatarIndex);
       game.hostId = me.id;
 
@@ -799,6 +938,7 @@
       else if (msg.t === 'avatar') hostGame.setAvatar(me, msg.avatar);
       else if (msg.t === 'setup') hostGame.setSetup(me, msg.setup);
       else if (msg.t === 'boost') hostGame.setBoost(me, msg.cat);
+      else if (msg.t === 'power') hostGame.usePowerup(me, msg.type);
     } else {
       sendToHost(msg);
     }
@@ -806,6 +946,8 @@
 
   function answer(i) {
     if (!view || view.state !== 'question' || view.yourAnswer != null) return;
+    if (deadline != null && performance.now() > deadline) return; // tempo scaduto (anche se dimezzato da un power-up)
+    if ((view.hidden || []).includes(i)) return;
     view.yourAnswer = i; // feedback immediato
     renderGame();
     sendAction({ t: 'answer', choice: i, qIndex: view.qIndex, ms: performance.now() - questionShownAt });
@@ -821,7 +963,7 @@
 
   // ---------- UI helper ----------
   function show(id) {
-    for (const s of ['home', 'lobby', 'countdown', 'game', 'final']) $(s).classList.toggle('hidden', s !== id);
+    for (const s of ['home', 'lobby', 'countdown', 'game', 'powerup', 'final']) $(s).classList.toggle('hidden', s !== id);
   }
   function setBusy(busy, text) {
     $('createBtn').disabled = busy;
@@ -873,6 +1015,7 @@
     if (s.state === 'lobby') renderLobby();
     else if (s.state === 'countdown') renderCountdown();
     else if (s.state === 'question' || s.state === 'reveal') renderGame();
+    else if (s.state === 'powerup') renderPowerup();
     else if (s.state === 'final') renderFinal();
   }
 
@@ -885,6 +1028,7 @@
     $('modeBadge').classList.toggle('plus', plus);
     document.title = plus ? 'Il Domandone Plus' : 'Il Domandone';
     $('kindTabs').classList.toggle('hidden', !plus);
+    $('legendBtn').classList.toggle('hidden', !plus);
     if (!plus && draft.custom.kind === 'drawing') setKind('question');
     $('shareLink').value = `${location.origin}${location.pathname}?room=${view.room}`;
     $('playerCount').textContent = `(${view.players.length}/${view.maxPlayers})`;
@@ -912,13 +1056,14 @@
 
   function renderCountdown() {
     show('countdown');
-    const regular = view.total - view.bonusCount;
+    const regular = view.total - view.bonusCount - (view.wrongCount || 0);
     const boost = view.roundBoost;
     const info = boost && catInfo(boost.cat);
     $('roundInfo').innerHTML = `<div>Round da <b>${regular}</b> domande${view.bonusCount
       ? ` + <b>${view.bonusCount}</b> ${view.mode === 'plus'
         ? (view.bonusCount === 1 ? 'domanda o disegno di un giocatore' : 'domande o disegni dei giocatori')
         : (view.bonusCount === 1 ? 'domanda scritta da un giocatore' : 'domande scritte dai giocatori')}, una ogni ${QUESTIONS_PER_PLAYER}!` : ''}</div>
+      ${view.wrongCount ? `<div>🙃 Dopo ogni ${QUESTIONS_PER_PLAYER} domande c'è <b>La risposta sbagliata</b>: chi la vince riceve un power-up!</div>` : ''}
       ${boost ? `<div class="cat-mix"><span class="chip on">🎯 Categoria favorita: ${info.emoji} ${esc(info.label)}${boost.by ? ' · scelta da ' + esc(boost.by) : ''}</span></div>` : ''}`;
   }
 
@@ -928,7 +1073,8 @@
     const key = `${view.room}:${view.qIndex}:${view.state}`;
     const isReveal = view.state === 'reveal';
     const isBonus = q.cat === 'bonus';
-    $('qCounter').textContent = `${isBonus ? '⭐ ' : ''}Domanda ${view.qIndex + 1}/${view.total}`;
+    const isWrong = q.type === 'wrong';
+    $('qCounter').textContent = `${isBonus ? '⭐ ' : isWrong ? '🙃 ' : ''}Domanda ${view.qIndex + 1}/${view.total}`;
     $('myScore').innerHTML = `${avatar(me(), 'small')}<span>${me().score} pt</span>`;
 
     const isDrawing = q.kind === 'drawing';
@@ -938,8 +1084,12 @@
       $('qDrawing').classList.toggle('hidden', !isDrawing);
       if (isDrawing) drawStrokes($('qDrawing'), q.drawing);
       const info = catInfo(q.cat);
-      $('qCat').className = `q-cat ${isBonus ? 'bonus' : ''}`;
-      $('qCat').textContent = isDrawing ? `✏️ Il disegno di ${q.author}` : isBonus ? `⭐ La domanda di ${q.author}` : `${info.emoji} ${info.label}`;
+      $('qCat').className = `q-cat ${isBonus ? 'bonus' : ''} ${isWrong ? 'wrong-cat' : ''}`;
+      $('qCat').textContent = isDrawing ? `✏️ Il disegno di ${q.author}` : isBonus ? `⭐ La domanda di ${q.author}`
+        : isWrong ? `🙃 La risposta sbagliata · ${q.step + 1}/${WRONG_QUESTIONS}` : `${info.emoji} ${info.label}`;
+      $('wrongHint').classList.toggle('hidden', !isWrong);
+      $('answers').classList.toggle('two', q.options.length === 2);
+      $('answers').classList.remove('expired');
       $('answers').innerHTML = q.options.map((opt, i) => `
         <button class="answer" data-i="${i}"><span class="letter">${LETTERS[i]}</span><span>${esc(opt)}</span></button>`).join('');
       $('answers').querySelectorAll('.answer').forEach((btn) => btn.addEventListener('click', () => answer(Number(btn.dataset.i))));
@@ -947,7 +1097,9 @@
 
     const buttons = [...$('answers').querySelectorAll('.answer')];
     buttons.forEach((btn, i) => {
-      btn.disabled = view.yourAnswer != null || isReveal || view.isAuthor;
+      const gone = (view.hidden || []).includes(i);
+      btn.classList.toggle('gone', gone && !isReveal);
+      btn.disabled = view.yourAnswer != null || isReveal || view.isAuthor || gone || $('answers').classList.contains('expired');
       btn.classList.toggle('chosen', view.yourAnswer === i);
       btn.classList.toggle('dim', !isReveal && view.yourAnswer != null && view.yourAnswer !== i);
       btn.classList.toggle('correct', isReveal && q.correct === i);
@@ -974,23 +1126,32 @@
         banner.textContent = n
           ? `Hai ingannato ${plural(n)}: +${view.yourPoints} punti!`
           : 'Nessuno ci è cascato!';
+      } else if (isWrong) {
+        const ok = view.yourAnswer === q.correct;
+        banner.className = `banner ${ok ? 'good' : 'bad'}`;
+        banner.textContent = ok ? `Hai scelto quella sbagliata: +${view.yourPoints} punti!`
+          : view.yourAnswer == null ? 'Tempo scaduto!' : 'Hai scelto quella vera: niente punti!';
       } else {
         const ok = view.yourAnswer === q.correct;
         banner.className = `banner ${ok ? 'good' : 'bad'}`;
+        const extra = [view.yourBonus ? `bonus +${view.yourBonus} incluso` : '', view.usedPower === 'x2' && ok ? 'x2!' : ''].filter(Boolean).join(' · ');
+        const zeroed = view.effects.some((e) => e.type === 'xx' && e.target === me().name);
         banner.textContent = ok
-          ? `Corretto! +${view.yourPoints} punti (${(me().lastMs / 1000).toFixed(2)}s)${view.yourBonus ? ` · bonus +${view.yourBonus} incluso` : ''}`
+          ? (zeroed ? 'Corretto, ma colpito da x_x: 0 punti!' : `Corretto! +${view.yourPoints} punti (${(me().lastMs / 1000).toFixed(2)}s)${extra ? ' · ' + extra : ''}`)
           : view.yourAnswer == null ? 'Tempo scaduto!' : 'Sbagliato!';
       }
       const fastest = view.players.filter((p) => p.lastPoints > 0 && p.lastMs != null).sort((a, b) => a.lastMs - b.lastMs)[0];
       const author = isDrawing ? ` · ${plural(q.guessed)} ${q.guessed === 1 ? 'ha' : 'hanno'} indovinato il disegno di ${q.author}`
         : isBonus ? ` · ${q.author} ha ingannato ${plural(q.fooled)}` : '';
-      $('qStatus').textContent = (fastest ? `⚡ Il più veloce: ${fastest.name} in ${(fastest.lastMs / 1000).toFixed(2)}s` : 'Nessuno ha indovinato!') + author;
+      $('qStatus').textContent = isWrong ? `La risposta vera era: ${q.options[q.truth]}`
+        : (fastest ? `⚡ Il più veloce: ${fastest.name} in ${(fastest.lastMs / 1000).toFixed(2)}s` : 'Nessuno ha indovinato!') + author;
       $('revealBoard').classList.remove('hidden');
       renderBoard($('board'), true);
     } else {
       banner.className = 'banner hidden';
       $('revealBoard').classList.add('hidden');
-      $('qStatus').textContent = view.isAuthor
+      $('qStatus').textContent = view.slowed && view.remainingMs === 0 && view.yourAnswer == null ? 'Tempo dimezzato da un avversario: scaduto!'
+        : view.isAuthor
         ? (isDrawing
           ? `È il tuo disegno! Guadagni ${view.drawPoints} punti per ogni giocatore che indovina. (${answered}/${online.length} hanno risposto)`
           : `È la tua domanda! Guadagni ${view.foolPoints} punti per ogni giocatore che sbaglia. (${answered}/${online.length} hanno risposto)`)
@@ -998,13 +1159,57 @@
           ? `Risposta inviata! In attesa degli altri… (${answered}/${online.length})`
           : `${answered}/${online.length} hanno risposto`;
     }
+    renderPowerBar(q, isReveal);
+    renderEffects();
+  }
+
+  // Power-up: pulsanti per usarli (solo domande normali, prima di rispondere, uno per domanda)
+  function renderPowerBar(q, isReveal) {
+    const bar = $('powerBar');
+    const mine = view.myPowerups || [];
+    const usable = view.mode === 'plus' && !isReveal && q.type === 'normal' && view.yourAnswer == null && !view.usedPower;
+    const show = view.mode === 'plus' && (mine.length || view.usedPower);
+    bar.classList.toggle('hidden', !show);
+    if (!show) return;
+    const used = view.usedPower ? `<span class="muted">Usato: <b>${POWERUPS[view.usedPower].label}</b></span>` : '';
+    const counts = {};
+    for (const t of mine) counts[t] = (counts[t] || 0) + 1;
+    bar.innerHTML = `<span class="muted">⚡ I tuoi power-up:</span>${Object.entries(counts).map(([t, n]) => `
+      <button type="button" class="chip power" data-type="${t}" ${usable ? '' : 'disabled'} title="${esc(POWERUPS[t].desc)}">${POWERUPS[t].label}${n > 1 ? ` ×${n}` : ''}</button>`).join('')}${used}`;
+  }
+
+  function renderEffects() {
+    const fx = (view.effects || []).map((e) => {
+      const p = POWERUPS[e.type].label;
+      if (e.type === 'xx') return `💥 ${esc(e.by)} ha usato <b>${p}</b> su ${esc(e.target || '—')}`;
+      if (e.type === 'minus300') return `💥 ${esc(e.by)} ha usato <b>${p}</b>: −300 a tutti gli avversari!`;
+      if (e.type === 'slow') return `💥 ${esc(e.by)} ha usato <b>${p}</b>: avversari con metà del tempo!`;
+      return `⚡ ${esc(e.by)} ha usato <b>${p}</b>`;
+    });
+    $('powerFeed').classList.toggle('hidden', !fx.length);
+    $('powerFeed').innerHTML = fx.join('<br>');
+  }
+
+  function renderPowerup() {
+    show('powerup');
+    renderedKey = '';
+    const a = view.award || {};
+    const line = (x, why) => `<div class="award">${avatar(view.players.find((p) => p.id === x.id) || { avatar: 0 })}
+      <div><b>${esc(x.name)}</b> ${why}<br>riceve <span class="chip on">${POWERUPS[x.type].label}</span>
+      <div class="muted hint">${esc(POWERUPS[x.type].desc)}</div></div></div>`;
+    const ranking = view.players.filter((p) => p.connected).slice().sort((x, y) => y.sessionPoints - x.sessionPoints)
+      .map((p) => `${esc(p.name)} ${p.sessionPoints}`).join(' · ');
+    $('awardBox').innerHTML = (a.winner ? line(a.winner, `ha vinto la sessione con ${a.winner.points} punti`) : '<div class="muted">Nessuno ha scelto la risposta sbagliata: niente power-up per la sessione.</div>')
+      + (a.last ? line(a.last, 'ha meno punti in classifica') : '')
+      + `<div class="muted hint">Punti della sessione: ${ranking}</div>`;
   }
 
   function renderBoard(el, withDelta) {
     el.innerHTML = view.players.map((p, i) => `
       <div class="line ${p.id === view.you ? 'me' : ''}">
         <div class="pos">${i + 1}</div>
-        <div class="who-cell">${avatar(p)}<span class="name">${esc(p.name)}${p.connected ? '' : ' <span class="muted">(offline)</span>'}</span></div>
+        <div class="who-cell">${avatar(p)}<span class="name">${esc(p.name)}${p.connected ? '' : ' <span class="muted">(offline)</span>'}${
+          (p.powerups || []).length ? ` <span class="pw-mini">${p.powerups.map((t) => POWERUPS[t].label).join(' ')}</span>` : ''}</span></div>
         <div class="delta ${p.lastPoints ? '' : 'zero'}">${withDelta ? (p.lastPoints ? '+' + p.lastPoints : '+0') : p.correctCount + ' ✓'}</div>
         <div class="pts">${p.score}</div>
       </div>`).join('');
@@ -1055,6 +1260,12 @@
         bar.style.transform = `scaleX(${ratio})`;
         bar.style.backgroundPosition = `${ratio * 100}% 0`;
         $('qTime').textContent = Math.ceil(left / 1000) + 's';
+        // tempo dimezzato da un avversario e scaduto: le risposte non sono più cliccabili
+        if (left === 0 && view.slowed && view.yourAnswer == null && !$('answers').classList.contains('expired')) {
+          $('answers').classList.add('expired');
+          for (const btn of $('answers').querySelectorAll('.answer')) btn.disabled = true;
+          $('qStatus').textContent = 'Tempo dimezzato da un avversario: scaduto!';
+        }
       } else if (view.state === 'reveal') {
         $('timerBar').style.transform = 'scaleX(0)';
         $('qTime').textContent = view.qIndex + 1 < view.total ? `Prossima tra ${Math.ceil(left / 1000)}s` : 'Risultati…';
@@ -1287,6 +1498,15 @@
       if (btn && view && view.pickerId === view.you) sendAction({ t: 'boost', cat: btn.dataset.id });
     });
   }
+
+  // ---------- power-up: uso e legenda ----------
+  $('powerBar').addEventListener('click', (e) => {
+    const btn = e.target.closest('.chip.power');
+    if (!btn || btn.disabled || !view || view.usedPower) return;
+    sendAction({ t: 'power', type: btn.dataset.type });
+  });
+  $('legendList').innerHTML = Object.values(POWERUPS).map((p) => `<div class="legend-row"><span class="chip on">${p.label}</span><span>${esc(p.desc)}</span></div>`).join('');
+  $('legendBtn').onclick = () => $('legend').classList.toggle('hidden');
 
   // ---------- eventi ----------
   function readName() {
