@@ -158,6 +158,9 @@
   .award { display: flex; gap: 12px; align-items: center; padding: 10px; border-radius: 12px; background: #0003; }
   .award .avatar { width: 54px; height: 54px; }
   .legend-row { display: flex; gap: 10px; align-items: center; }
+  .legend-box { text-align: left; background: #0003; border-radius: 12px; padding: 14px; }
+  .award-chip { margin: 10px 0 8px; }
+  .award-chip .chip { display: inline-block; }
   .ws-last { text-align: center; font-weight: 800; min-height: 1.5em; margin-bottom: 8px; }
   .ws-last.good { color: var(--good); }
   .ws-last.bad { color: var(--bad); }
@@ -234,6 +237,11 @@
     <div class="card stack center">
       <div class="mode-badge" id="modeBadge">Il Domandone</div>
       <button id="legendBtn" type="button" class="ghost small hidden">⚡ Power-up: legenda</button>
+      <div class="legend-box stack hidden" id="legend">
+        <h3>⚡ Power-up</h3>
+        <div class="muted hint">Nel Plus, dopo ogni 5 domande arriva <b>La risposta sbagliata</b>: 3 domande lampo (5 secondi) con 2 risposte, e fa punti chi sceglie quella <b>sbagliata</b>. Ognuno va al proprio ritmo: appena rispondi passi alla successiva, e chi finisce per primo prende 100 punti bonus. Chi vince la sessione riceve un power-up a caso; chi è ultimo in classifica riceve 50/50 o x2. I power-up si usano durante le domande normali, prima di rispondere, uno per domanda; quelli non usati restano anche per il round successivo.</div>
+        <div id="legendList" class="stack"></div>
+      </div>
       <div class="muted">Codice stanza</div>
       <div class="room-code" id="lobbyCode">----</div>
       <div class="share">
@@ -251,11 +259,6 @@
       <div class="avatar-grid" id="lobbyAvatars"></div>
     </div>
     <div class="card stack hidden" id="boostLobby"></div>
-    <div class="card stack hidden" id="legend">
-      <h3>⚡ Power-up</h3>
-      <div class="muted hint">Nel Plus, dopo ogni 5 domande arriva <b>La risposta sbagliata</b>: 3 domande lampo (5 secondi) con 2 risposte, e fa punti chi sceglie quella <b>sbagliata</b>. Ognuno va al proprio ritmo: appena rispondi passi alla successiva, e chi finisce per primo prende 100 punti bonus. Chi vince la sessione riceve un power-up a caso; chi è ultimo in classifica riceve 50/50 o x2. I power-up si usano durante le domande normali, prima di rispondere, uno per domanda; quelli non usati restano anche per il round successivo.</div>
-      <div id="legendList" class="stack"></div>
-    </div>
     <div class="card stack" id="setupForm">
       <div class="label-row">
         <h3 style="margin:0">Prepara la partita</h3>

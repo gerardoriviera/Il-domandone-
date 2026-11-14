@@ -1313,7 +1313,8 @@
     renderedKey = '';
     const a = view.award || {};
     const line = (x, why) => `<div class="award">${avatar(view.players.find((p) => p.id === x.id) || { avatar: 0 })}
-      <div><b>${esc(x.name)}</b> ${why}<br>riceve <span class="chip on">${POWERUPS[x.type].label}</span>
+      <div><div><b>${esc(x.name)}</b> ${why} e riceve:</div>
+      <div class="award-chip"><span class="chip on">${POWERUPS[x.type].label}</span></div>
       <div class="muted hint">${esc(POWERUPS[x.type].desc)}</div></div></div>`;
     const ranking = view.players.filter((p) => p.connected).slice().sort((x, y) => y.sessionPoints - x.sessionPoints)
       .map((p) => `${esc(p.name)} ${p.sessionPoints}`).join(' · ');
