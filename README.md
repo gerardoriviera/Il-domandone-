@@ -24,6 +24,12 @@ Nella schermata iniziale si può creare una stanza **Classico** o una stanza **P
 - l'autore di un **disegno** guadagna **250 punti per ogni giocatore che indovina**;
 - chi indovina una domanda o un disegno di un giocatore prende **200 punti bonus**, oltre ai punti per la velocità.
 
+### Indovina chi? 🕵️
+
+In ogni blocco del Plus (5 domande, La risposta sbagliata, domanda del giocatore) compare una volta, in una posizione a caso, il gioco **Indovina chi?**. Un'immagine quadrata parte tutta nera ed è divisa in 16 tessere che si scoprono man mano (45 secondi in tutto). Sotto ci sono le caselle per le lettere della parola da indovinare: le lettere giuste al posto giusto restano bloccate **solo per chi le ha trovate**, e da metà tempo iniziano a comparire lettere per tutti. Il primo che indovina la parola vince **1500 punti** (come due risposte corrette) e un **power-up** a caso, che si aggiunge a quelli che ha già.
+
+Le immagini sono in `public/indovina/` e si elencano, con la parola da indovinare, in `window.GUESS_IMAGES` dentro `public/questions.js`: per aggiungerne una basta mettere il file nella cartella e una riga nella lista.
+
 ### La risposta sbagliata 🙃 e i power-up ⚡
 
 Nel Plus, dopo ogni blocco di 5 domande (prima della domanda o del disegno di un giocatore) arriva una sessione speciale: **La risposta sbagliata**. Sono 3 domande lampo con solo 2 risposte, una vera e una falsa, prese da una banca dedicata di 100 domande (`window.WRONG_SESSION_QUESTIONS` in `public/questions.js`, 10 per categoria): **fa punti chi sceglie quella falsa** (da 150 a 100 punti, meno delle domande normali).

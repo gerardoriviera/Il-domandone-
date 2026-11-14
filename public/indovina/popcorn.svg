@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+  <rect width="400" height="400" fill="#2b1846"/>
+  <g fill="#ffd54d" opacity=".25"><circle cx="40" cy="60" r="18"/><circle cx="360" cy="70" r="22"/><circle cx="50" cy="320" r="16"/><circle cx="360" cy="330" r="18"/></g>
+  <g fill="#fff6dc" stroke="#f2d27a" stroke-width="3">
+    <circle cx="130" cy="140" r="34"/><circle cx="185" cy="105" r="38"/><circle cx="245" cy="110" r="36"/><circle cx="285" cy="150" r="32"/>
+    <circle cx="160" cy="160" r="32"/><circle cx="215" cy="150" r="36"/><circle cx="265" cy="175" r="28"/><circle cx="120" cy="175" r="26"/>
+    <circle cx="200" cy="70" r="26"/><circle cx="150" cy="90" r="24"/><circle cx="255" cy="70" r="22"/>
+  </g>
+  <g fill="#ffcb47"><circle cx="175" cy="120" r="8"/><circle cx="240" cy="135" r="7"/><circle cx="140" cy="150" r="6"/><circle cx="270" cy="160" r="6"/><circle cx="205" cy="85" r="6"/></g>
+  <path d="M95 175 L305 175 L280 390 L120 390 Z" fill="#fff"/>
+  <g fill="#e8273b"><path d="M95 175 L130 175 L140 390 L120 390 Z"/><path d="M165 175 L195 175 L190 390 L170 390 Z"/><path d="M235 175 L270 175 L260 390 L240 390 Z"/><path d="M300 175 L305 175 L282 390 L280 390 Z"/></g>
+  <rect x="140" y="250" width="120" height="50" rx="10" fill="#ffd54d"/>
+  <text x="200" y="285" font-family="Arial, sans-serif" font-size="30" font-weight="900" text-anchor="middle" fill="#2b1846">CINEMA</text>
+</svg>

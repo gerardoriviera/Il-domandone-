@@ -2298,3 +2298,18 @@ window.WRONG_SESSION_QUESTIONS = [
   { cat: "cultura", q: "Chi ha scritto 'Romeo e Giulietta'?", a: "Shakespeare", f: "Dickens" },
   { cat: "cultura", q: "Chi costruisce Pinocchio?", a: "Geppetto", f: "Mangiafuoco" },
 ];
+
+// Immagini del gioco "Indovina chi?" (versione Plus): una per categoria, in public/indovina/.
+// `word` è la parola da indovinare (solo lettere, senza accenti).
+window.GUESS_IMAGES = [
+  { cat: "geografia", word: "VULCANO", img: "indovina/vulcano.svg" },
+  { cat: "storia", word: "FARAONE", img: "indovina/faraone.svg" },
+  { cat: "scienza", word: "ASTRONAUTA", img: "indovina/astronauta.svg" },
+  { cat: "cinema", word: "POPCORN", img: "indovina/popcorn.svg" },
+  { cat: "musica", word: "CHITARRA", img: "indovina/chitarra.svg" },
+  { cat: "sport", word: "PALLONE", img: "indovina/pallone.svg" },
+  { cat: "cibo", word: "PIZZA", img: "indovina/pizza.svg" },
+  { cat: "nerd", word: "NINJA", img: "indovina/ninja.svg" },
+  { cat: "tech", word: "ROBOT", img: "indovina/robot.svg" },
+  { cat: "cultura", word: "TAVOLOZZA", img: "indovina/tavolozza.svg" },
+];

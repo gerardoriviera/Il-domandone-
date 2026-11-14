@@ -24,6 +24,11 @@
   const WRONG_MAX_POINTS = 150;
   const WRONG_MIN_POINTS = 100;
   const FIRST_FINISH_BONUS = 100; // a chi risponde per primo a tutte e 3 le domande
+  // Plus: "Indovina chi?" — un'immagine che si scopre a tessere e una parola da indovinare
+  const GUESS_TIME_MS = 45000;
+  const GUESS_TILES = 16;           // immagine divisa in 4x4 tessere
+  const GUESS_END_MS = 5000;
+  const GUESS_POINTS = 2 * 750;     // come due risposte corrette date subito
   const POWERUP_SCREEN_MS = 7000;
   // Power-up del Plus (si usano durante le domande normali, prima di rispondere, uno per domanda)
   const POWERUPS = {
@@ -214,6 +219,7 @@
       this.pickerName = null;
       this.usedQuestions = new Set(); // domande già uscite in questa stanza ("categoria:indice")
       this.usedWrong = new Set();     // domande già uscite nella sessione "La risposta sbagliata"
+      this.usedGuess = new Set();     // immagini già uscite in "Indovina chi?"
       this.heartbeat = setInterval(() => this.checkHeartbeats(), 2000);
     }
 
@@ -277,6 +283,7 @@
       if (msg.t === 'answer') this.answer(player, msg.choice, msg.qIndex, msg.ms);
       else if (msg.t === 'power') this.usePowerup(player, msg.type);
       else if (msg.t === 'wanswer') this.wsAnswer(player, msg.idx, msg.choice, msg.ms);
+      else if (msg.t === 'guess') this.guessTry(player, msg.text);
       else if (msg.t === 'avatar') this.setAvatar(player, msg.avatar);
       else if (msg.t === 'setup') this.setSetup(player, msg.setup);
       else if (msg.t === 'boost') this.setBoost(player, msg.cat);
@@ -354,6 +361,7 @@
     clearTimer() {
       clearTimeout(this.timer);
       clearInterval(this.wsInterval);
+      clearInterval(this.guessInterval);
       this.timer = null;
     }
 
@@ -430,11 +438,25 @@
         });
         return items.length ? [{ type: 'wsession', session, items }] : [];
       };
+      // Plus: in ogni blocco compare una volta "Indovina chi?", dopo una domanda a caso del blocco
+      const guessBank = window.GUESS_IMAGES || [];
+      const guessGame = () => {
+        let pool = guessBank.map((_, i) => i).filter((i) => !this.usedGuess.has(i));
+        if (!pool.length) { this.usedGuess.clear(); pool = guessBank.map((_, i) => i); }
+        if (!pool.length) return [];
+        const i = pool[randomInt(pool.length)];
+        this.usedGuess.add(i);
+        const g = guessBank[i];
+        return [{ type: 'guess', cat: g.cat, word: String(g.word).toUpperCase().replace(/[^A-Z]/g, ''), img: g.img }];
+      };
+      let guessAfter = randomInt(QUESTIONS_PER_PLAYER);
       const round = [];
       let session = 0;
       questions.forEach((q, i) => {
         round.push(q);
+        if (this.mode === 'plus' && i % QUESTIONS_PER_PLAYER === guessAfter) round.push(...guessGame());
         if ((i + 1) % QUESTIONS_PER_PLAYER === 0) {
+          guessAfter = randomInt(QUESTIONS_PER_PLAYER);
           if (this.mode === 'plus') round.push(...wrongSession(session++));
           if (customs.length) round.push(customs.shift());
         }
@@ -485,6 +507,7 @@
       }
       const q = this.questions[this.qIndex];
       if (q.type === 'wsession') { this.startWrongSession(q); return; }
+      if (q.type === 'guess') { this.startGuess(q); return; }
       const time = QUESTION_TIME_MS;
       for (const p of this.players.values()) {
         p.answer = null;
@@ -640,6 +663,67 @@
 
     // Fine della sessione "La risposta sbagliata": power-up a chi ha fatto più punti nella sessione
     // e a chi è ultimo nella classifica generale.
+    // ----- "Indovina chi?" -----
+    startGuess(item) {
+      const now = Date.now();
+      this.guess = {
+        item, start: now, winnerId: null, winnerName: null, award: null, publicCount: 0,
+        tileOrder: shuffle([...Array(GUESS_TILES).keys()]),
+        letterOrder: shuffle([...Array(item.word.length).keys()]),
+      };
+      for (const p of this.players.values()) { p.gKnown = new Set(); p.gTries = 0; p.gLast = null; }
+      this.state = 'guess';
+      this.phaseEnds = now + GUESS_TIME_MS;
+      this.timer = setTimeout(() => this.endGuess(null), GUESS_TIME_MS);
+      this.guessInterval = setInterval(() => this.guessTick(), 300);
+      this.broadcast();
+    }
+
+    // da metà del tempo compaiono lettere per tutti (mai l'ultima)
+    guessTick() {
+      if (this.state !== 'guess') return;
+      const g = this.guess;
+      const len = g.item.word.length;
+      const elapsed = Date.now() - g.start;
+      const half = GUESS_TIME_MS / 2;
+      const n = elapsed < half ? 0 : Math.min(len - 1, Math.floor((elapsed - half) / (half / len)) + 1);
+      if (n !== g.publicCount) { g.publicCount = n; this.broadcast(); }
+    }
+
+    guessTry(player, text) {
+      if (this.state !== 'guess' || !this.guess || this.guess.winnerId) return;
+      const word = this.guess.item.word;
+      const t = String(text || '').toUpperCase().replace(/[^A-Z]/g, '');
+      if (t.length !== word.length) return;
+      player.gTries++;
+      if (t === word) { this.endGuess(player); return; }
+      let found = 0;
+      for (let i = 0; i < word.length; i++) {
+        if (t[i] === word[i] && !player.gKnown.has(i)) { player.gKnown.add(i); found++; }
+      }
+      player.gLast = { found, at: Date.now() };
+      this.broadcast();
+    }
+
+    endGuess(winner) {
+      if (this.state !== 'guess') return;
+      this.clearTimer();
+      const g = this.guess;
+      if (winner) {
+        const type = Object.keys(POWERUPS)[randomInt(Object.keys(POWERUPS).length)];
+        winner.score += GUESS_POINTS;
+        winner.powerups = winner.powerups || [];
+        winner.powerups.push(type); // si aggiunge a quelli che ha già
+        g.winnerId = winner.id;
+        g.winnerName = winner.name;
+        g.award = type;
+      }
+      this.state = 'guessEnd';
+      this.phaseEnds = Date.now() + GUESS_END_MS;
+      this.timer = setTimeout(() => this.nextQuestion(), GUESS_END_MS);
+      this.broadcast();
+    }
+
     giveAwards() {
       this.clearTimer();
       const online = this.online();
@@ -754,11 +838,13 @@
         room: this.code,
         mode: this.mode,
         state: this.state,
+        qIndex: this.qIndex, // anche fuori dalle domande: serve a riconoscere ogni nuova sessione o gioco
         you: player.id,
         hostId: this.hostId,
         maxPlayers: MAX_PLAYERS,
-        total: this.questions.filter((q) => q.type !== 'wsession').length,
-        qNumber: this.questions.slice(0, this.qIndex + 1).filter((q) => q.type !== 'wsession').length,
+        total: this.questions.filter((q) => q.type !== 'wsession' && q.type !== 'guess').length,
+        qNumber: this.questions.slice(0, this.qIndex + 1).filter((q) => q.type !== 'wsession' && q.type !== 'guess').length,
+        guessCount: this.questions.filter((q) => q.type === 'guess').length,
         bonusCount: this.questions.filter((q) => q.authorId).length,
         roundBoost: this.roundBoost,
         boostCat: this.boostCat,
@@ -775,6 +861,22 @@
         award: this.state === 'powerup' ? this.award : null,
         players,
       };
+      if ((this.state === 'guess' || this.state === 'guessEnd') && this.guess) {
+        const g = this.guess;
+        const word = g.item.word;
+        const ended = this.state === 'guessEnd';
+        const pub = new Set(g.letterOrder.slice(0, g.publicCount));
+        const known = player.gKnown || new Set();
+        view.guess = {
+          cat: g.item.cat, img: g.item.img, len: word.length, duration: GUESS_TIME_MS,
+          elapsed: Math.min(GUESS_TIME_MS, Date.now() - g.start), tileOrder: g.tileOrder, ended,
+          letters: [...word].map((ch, i) => (ended || pub.has(i) || known.has(i) ? ch : '')),
+          mine: [...word].map((_, i) => known.has(i)),
+          tries: player.gTries || 0, last: player.gLast,
+          winnerName: g.winnerName, winnerIsYou: g.winnerId === player.id, award: g.award, points: GUESS_POINTS,
+          word: ended ? word : null,
+        };
+      }
       if (this.state === 'wsession' && player.ws) {
         const w = player.ws;
         const item = this.ws.items[w.idx];
@@ -1019,6 +1121,7 @@
       else if (msg.t === 'boost') hostGame.setBoost(me, msg.cat);
       else if (msg.t === 'power') hostGame.usePowerup(me, msg.type);
       else if (msg.t === 'wanswer') hostGame.wsAnswer(me, msg.idx, msg.choice, msg.ms);
+      else if (msg.t === 'guess') hostGame.guessTry(me, msg.text);
     } else {
       sendToHost(msg);
     }
@@ -1043,7 +1146,7 @@
 
   // ---------- UI helper ----------
   function show(id) {
-    for (const s of ['home', 'lobby', 'countdown', 'game', 'wsession', 'powerup', 'final']) $(s).classList.toggle('hidden', s !== id);
+    for (const s of ['home', 'lobby', 'countdown', 'game', 'wsession', 'guess', 'powerup', 'final']) $(s).classList.toggle('hidden', s !== id);
   }
   function setBusy(busy, text) {
     $('createBtn').disabled = busy;
@@ -1096,6 +1199,7 @@
     else if (s.state === 'countdown') renderCountdown();
     else if (s.state === 'question' || s.state === 'reveal') renderGame();
     else if (s.state === 'wsession') renderWrongSession();
+    else if (s.state === 'guess' || s.state === 'guessEnd') renderGuess();
     else if (s.state === 'powerup') renderPowerup();
     else if (s.state === 'final') renderFinal();
   }
@@ -1144,6 +1248,7 @@
       ? ` + <b>${view.bonusCount}</b> ${view.mode === 'plus'
         ? (view.bonusCount === 1 ? 'domanda o disegno di un giocatore' : 'domande o disegni dei giocatori')
         : (view.bonusCount === 1 ? 'domanda scritta da un giocatore' : 'domande scritte dai giocatori')}, una ogni ${QUESTIONS_PER_PLAYER}!` : ''}</div>
+      ${view.guessCount ? `<div>🕵️ In ogni blocco c'è anche un <b>Indovina chi?</b> a sorpresa: chi indovina vince ${GUESS_POINTS} punti e un power-up!</div>` : ''}
       ${view.wrongCount ? `<div>🙃 Dopo ogni ${QUESTIONS_PER_PLAYER} domande c'è <b>La risposta sbagliata</b>: chi la vince riceve un power-up!</div>` : ''}
       ${boost ? `<div class="cat-mix"><span class="chip on">🎯 Categoria favorita: ${info.emoji} ${esc(info.label)}${boost.by ? ' · scelta da ' + esc(boost.by) : ''}</span></div>` : ''}`;
   }
@@ -1308,6 +1413,108 @@
     sendAction({ t: 'wanswer', idx: view.ws.step, choice: Number(btn.dataset.i), ms: performance.now() - wsShownAt });
   });
 
+  // ---------- "Indovina chi?" ----------
+  let guessKey = '';
+  let guessStartLocal = 0;
+  function renderGuess() {
+    show('guess');
+    renderedKey = '';
+    const g = view.guess;
+    if (!g) return;
+    const key = `${view.qIndex}`;
+    const info = catInfo(g.cat);
+    if (key !== guessKey) {
+      guessKey = key;
+      $('gCat').textContent = `${info.emoji} ${info.label}`;
+      $('gTiles').innerHTML = Array.from({ length: 16 }, (_, i) => {
+        const x = (i % 4) * 100 / 3;
+        const y = Math.floor(i / 4) * 100 / 3;
+        return `<div class="g-tile cover" data-i="${i}" style="background-image:url('${g.img}');background-position:${x}% ${y}%"></div>`;
+      }).join('');
+      $('gLetters').innerHTML = Array.from({ length: g.len }, (_, i) =>
+        `<input class="g-letter" data-i="${i}" maxlength="1" autocomplete="off" autocapitalize="characters" spellcheck="false">`).join('');
+      $('gFeedback').textContent = '';
+      $('gFeedback').className = 'g-feedback';
+    }
+    guessStartLocal = performance.now() - g.elapsed;
+    // lettere giuste (solo tue) e lettere rivelate a tutti restano bloccate
+    const inputs = [...$('gLetters').querySelectorAll('.g-letter')];
+    inputs.forEach((inp, i) => {
+      const ch = g.letters[i];
+      if (ch) {
+        inp.value = ch;
+        inp.readOnly = true;
+        inp.classList.toggle('mine', g.mine[i] && !g.ended);
+        inp.classList.toggle('pub', !g.mine[i] && !g.ended);
+      }
+      inp.disabled = g.ended;
+    });
+    $('gTryBtn').disabled = g.ended;
+    if (g.last && !g.ended) {
+      $('gFeedback').className = `g-feedback ${g.last.found ? 'good' : 'bad'}`;
+      $('gFeedback').textContent = g.last.found ? `Sbagliato, ma hai trovato ${g.last.found} letter${g.last.found === 1 ? 'a' : 'e'} al posto giusto!` : 'Non è quella, riprova!';
+    }
+    if (g.ended) {
+      $('gTime').textContent = '';
+      $('gTimerBar').style.transform = 'scaleX(0)';
+      for (const t of $('gTiles').querySelectorAll('.g-tile')) t.classList.remove('cover');
+      $('gResult').classList.remove('hidden');
+      const pw = g.award ? POWERUPS[g.award].label : '';
+      $('gResult').className = `banner ${g.winnerIsYou ? 'good' : g.winnerName ? 'bad' : 'bad'}`;
+      $('gResult').textContent = g.winnerIsYou ? `🎉 Hai indovinato! +${g.points} punti e il power-up ${pw}`
+        : g.winnerName ? `${g.winnerName} ha indovinato "${g.word}": +${g.points} punti e il power-up ${pw}`
+          : `Nessuno ha indovinato: era "${g.word}"`;
+      $('gFeedback').textContent = '';
+    } else {
+      $('gResult').classList.add('hidden');
+    }
+  }
+
+  function guessTiles(elapsed) {
+    const g = view && view.guess;
+    if (!g) return;
+    const shown = g.ended ? 16 : Math.min(16, Math.floor(elapsed / (g.duration / 16)) + 1);
+    const visible = new Set(g.tileOrder.slice(0, shown));
+    for (const t of $('gTiles').querySelectorAll('.g-tile')) t.classList.toggle('cover', !visible.has(Number(t.dataset.i)));
+  }
+
+  function sendGuess() {
+    if (!view || !view.guess || view.guess.ended) return;
+    const inputs = [...$('gLetters').querySelectorAll('.g-letter')];
+    const text = inputs.map((x) => x.value.trim().toUpperCase()).join('');
+    if (text.length !== inputs.length) {
+      $('gFeedback').className = 'g-feedback bad';
+      $('gFeedback').textContent = 'Completa tutte le lettere.';
+      return;
+    }
+    sendAction({ t: 'guess', text });
+    // le lettere sbagliate si cancellano, quelle giuste tornano bloccate dall'host
+    for (const x of inputs) if (!x.readOnly) x.value = '';
+    const first = inputs.find((x) => !x.readOnly);
+    if (first) first.focus();
+  }
+
+  $('gLetters').addEventListener('input', (e) => {
+    const inp = e.target.closest('.g-letter');
+    if (!inp) return;
+    inp.value = inp.value.toUpperCase().replace(/[^A-Z]/g, '').slice(-1);
+    if (!inp.value) return;
+    const inputs = [...$('gLetters').querySelectorAll('.g-letter')];
+    const next = inputs.slice(inputs.indexOf(inp) + 1).find((x) => !x.readOnly);
+    if (next) next.focus();
+  });
+  $('gLetters').addEventListener('keydown', (e) => {
+    const inp = e.target.closest('.g-letter');
+    if (!inp) return;
+    if (e.key === 'Enter') { e.preventDefault(); sendGuess(); return; }
+    if (e.key === 'Backspace' && !inp.value) {
+      const inputs = [...$('gLetters').querySelectorAll('.g-letter')];
+      const prev = inputs.slice(0, inputs.indexOf(inp)).reverse().find((x) => !x.readOnly);
+      if (prev) { prev.value = ''; prev.focus(); e.preventDefault(); }
+    }
+  });
+  $('gTryBtn').onclick = sendGuess;
+
   function renderPowerup() {
     show('powerup');
     renderedKey = '';
@@ -1386,6 +1593,12 @@
           for (const btn of $('answers').querySelectorAll('.answer')) btn.disabled = true;
           $('qStatus').textContent = 'Tempo dimezzato da un avversario: scaduto!';
         }
+      } else if (view.state === 'guess' && view.guess) {
+        const ratio = left / view.guess.duration;
+        $('gTimerBar').style.transform = `scaleX(${ratio})`;
+        $('gTimerBar').style.backgroundPosition = `${ratio * 100}% 0`;
+        $('gTime').textContent = Math.ceil(left / 1000) + 's';
+        guessTiles(performance.now() - guessStartLocal);
       } else if (view.state === 'wsession' && view.ws && !view.ws.done) {
         const ratio = left / view.ws.time;
         $('wsTimerBar').style.transform = `scaleX(${ratio})`;

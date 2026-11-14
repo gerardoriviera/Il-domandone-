@@ -158,6 +158,16 @@
   .award { display: flex; gap: 12px; align-items: center; padding: 10px; border-radius: 12px; background: #0003; }
   .award .avatar { width: 54px; height: 54px; }
   .legend-row { display: flex; gap: 10px; align-items: center; }
+  .g-tiles { display: grid; grid-template-columns: repeat(4, 1fr); width: min(100%, 360px, 42vh); aspect-ratio: 1; margin: 0 auto 14px; border-radius: 12px; overflow: hidden; box-shadow: 0 6px 20px #0006; background: #000; }
+  .g-tile { background-size: 400% 400%; transition: opacity .5s; }
+  .g-tile.cover { background-image: none !important; background: #000; }
+  .g-letters { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-bottom: 12px; }
+  .g-letter { width: 2.4rem; height: 2.8rem; padding: 0; text-align: center; font-size: 1.4rem; font-weight: 900; text-transform: uppercase; border-radius: 10px; }
+  .g-letter.mine { border-color: var(--good); background: color-mix(in srgb, var(--good) 25%, transparent); }
+  .g-letter.pub { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, transparent); }
+  .g-feedback { text-align: center; font-weight: 700; min-height: 1.4em; margin-top: 10px; }
+  .g-feedback.good { color: var(--good); }
+  .g-feedback.bad { color: var(--bad); }
   .legend-box { text-align: left; background: #0003; border-radius: 12px; padding: 14px; }
   .award-chip { margin: 10px 0 8px; }
   .award-chip .chip { display: inline-block; }
@@ -239,7 +249,7 @@
       <button id="legendBtn" type="button" class="ghost small hidden">⚡ Power-up: legenda</button>
       <div class="legend-box stack hidden" id="legend">
         <h3>⚡ Power-up</h3>
-        <div class="muted hint">Nel Plus, dopo ogni 5 domande arriva <b>La risposta sbagliata</b>: 3 domande lampo (5 secondi) con 2 risposte, e fa punti chi sceglie quella <b>sbagliata</b>. Ognuno va al proprio ritmo: appena rispondi passi alla successiva, e chi finisce per primo prende 100 punti bonus. Chi vince la sessione riceve un power-up a caso; chi è ultimo in classifica riceve 50/50 o x2. I power-up si usano durante le domande normali, prima di rispondere, uno per domanda; quelli non usati restano anche per il round successivo.</div>
+        <div class="muted hint">Nel Plus, dopo ogni 5 domande arriva <b>La risposta sbagliata</b>: 3 domande lampo (5 secondi) con 2 risposte, e fa punti chi sceglie quella <b>sbagliata</b>. Ognuno va al proprio ritmo: appena rispondi passi alla successiva, e chi finisce per primo prende 100 punti bonus. Chi vince la sessione riceve un power-up a caso; chi è ultimo in classifica riceve 50/50 o x2. In ogni blocco c'è anche un <b>Indovina chi?</b>: chi indovina per primo la parola vince 1500 punti e un power-up. I power-up si usano durante le domande normali, prima di rispondere, uno per domanda; quelli non usati restano anche per il round successivo.</div>
         <div id="legendList" class="stack"></div>
       </div>
       <div class="muted">Codice stanza</div>
@@ -352,6 +362,22 @@
       <div id="wsProgress" class="stack"></div>
       <div class="muted hint">🏃 Chi risponde per primo a tutte e 3 le domande prende 100 punti bonus.</div>
     </div>
+  </section>
+
+  <!-- "INDOVINA CHI?": immagine a tessere e parola da indovinare -->
+  <section id="guess" class="hidden">
+    <div class="topbar">
+      <div>🕵️ Indovina chi?</div>
+      <div id="gTime">45s</div>
+      <div class="q-cat" id="gCat" style="margin:0"></div>
+    </div>
+    <div class="timer"><div id="gTimerBar"></div></div>
+    <div class="g-tiles" id="gTiles"></div>
+    <div class="g-letters" id="gLetters"></div>
+    <div class="center"><button id="gTryBtn" type="button">Prova!</button></div>
+    <div class="g-feedback" id="gFeedback"></div>
+    <div id="gResult" class="banner hidden"></div>
+    <div class="muted center hint">Le lettere giuste al posto giusto restano solo per te. Da metà tempo compaiono lettere per tutti. Chi indovina per primo vince punti e un power-up!</div>
   </section>
 
   <!-- POWER-UP: fine della sessione "La risposta sbagliata" -->
