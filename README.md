@@ -10,7 +10,7 @@ Le domande sono divise in **10 categorie**: geografia e viaggi, storia, scienza 
 2. Un giocatore crea una stanza e riceve un **codice di 4 lettere** (o un link da condividere). Gli altri entrano con il codice e si ritrovano nella **lobby**.
 3. In lobby ogni giocatore **scrive una sua domanda** con 4 risposte, di cui una sola giusta, poi preme "Sono pronto!". Chi non ha idee può premere **"Genera"**: i campi si riempiono con una domanda già pronta, che si può modificare.
 4. L'host avvia la partita. Un round ha **5 domande per ogni giocatore** (es. 3 giocatori = 15 domande), estratte a caso tra le 10 categorie. Ogni domanda ha sempre **4 risposte**, una sola giusta. Attenzione: a volte le risposte sbagliate sono molto simili a quella giusta (es. *Canberra* / *Camberra*), per ingannare chi non legge bene!
-5. Hai 20 secondi per rispondere. Se rispondi giusto guadagni da **1000 punti** (risposta istantanea) a **500 punti** (all'ultimo secondo): **più sei veloce, più punti fai**. Una risposta sbagliata vale 0.
+5. Hai 20 secondi per rispondere. Se rispondi giusto guadagni da **750 punti** (risposta istantanea) a **500 punti** (all'ultimo secondo): **più sei veloce, più punti fai**. Una risposta sbagliata vale 0.
 6. In ogni round escono **le domande scritte da tutti i giocatori**, una dopo ogni 5 domande normali. L'autore non risponde, ma guadagna **250 punti per ogni giocatore che sbaglia**.
 7. Chi ha più punti **vince il round**. Chi ne ha fatti meno sceglie la **categoria favorita**, che nel round successivo uscirà circa 3 volte più spesso delle altre.
 8. L'host passa al round successivo: i campi della domanda si svuotano e ognuno ne scrive (o genera) una nuova.

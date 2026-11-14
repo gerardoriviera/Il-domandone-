@@ -18,7 +18,7 @@
   const QUESTION_TIME_MS = 20000;
   const REVEAL_TIME_MS = 6000;
   const COUNTDOWN_MS = 3000;
-  const MAX_POINTS = 1000;
+  const MAX_POINTS = 750; // punti per una risposta corretta immediata: la rapidità vale al massimo 250 punti
   const MIN_POINTS = 500; // punti per una risposta corretta data all'ultimo istante
   const LOBBY_GRACE_MS = 15000; // tempo per riconnettersi prima di essere rimossi dalla lobby
   const HEARTBEAT_MS = 3000;
