@@ -10,6 +10,11 @@
   const QUESTIONS_PER_PLAYER = 5; // un round ha 5 domande per ogni giocatore
   const BOOST_WEIGHT = 3; // la categoria favorita esce circa 3 volte più spesso delle altre
   const FOOL_POINTS = 250; // punti all'autore della domanda bonus per ogni giocatore che sbaglia
+  // Solo nella versione Plus:
+  const DRAW_POINTS = 250; // punti all'autore di un disegno per ogni giocatore che indovina
+  const GUESS_BONUS = 200; // bonus a chi indovina una domanda o un disegno di un giocatore
+  const DRAW_PROMPT = 'Che cosa rappresenta il disegno?';
+  const DRAW_MAX_POINTS = 4000; // limite di punti per disegno, per tenere piccoli i messaggi
   const QUESTION_TIME_MS = 20000;
   const REVEAL_TIME_MS = 6000;
   const COUNTDOWN_MS = 3000;
@@ -56,18 +61,41 @@
   function cleanText(text, max) {
     return String(text || '').replace(/\s+/g, ' ').trim().slice(0, max);
   }
-  // Valida la domanda scritta da un giocatore: 4 risposte diverse, di cui 1 giusta.
-  function cleanSetup(data) {
+  // Un disegno è una lista di tratti; ogni tratto è [x0, y0, x1, y1, ...] con coordinate intere 0-1000.
+  function cleanDrawing(strokes) {
+    if (!Array.isArray(strokes)) return null;
+    const out = [];
+    let points = 0;
+    for (const st of strokes.slice(0, 400)) {
+      if (!Array.isArray(st) || st.length < 2) continue;
+      const room = (DRAW_MAX_POINTS - points) * 2;
+      if (room <= 0) break;
+      const clean = st.slice(0, Math.min(st.length - (st.length % 2), room))
+        .map((v) => Math.max(0, Math.min(1000, Math.round(Number(v) || 0))));
+      if (clean.length < 2) continue;
+      out.push(clean);
+      points += clean.length / 2;
+    }
+    return out.length ? out : null;
+  }
+
+  // Valida il contributo di un giocatore: una domanda (o, nel Plus, un disegno) con 4 risposte
+  // diverse, di cui 1 giusta.
+  function cleanSetup(data, mode) {
     data = data && typeof data === 'object' ? data : {};
     let custom = null;
     const c = data.custom;
     if (c && typeof c === 'object' && Array.isArray(c.options)) {
-      const q = cleanText(c.q, 160);
+      const kind = mode === 'plus' && c.kind === 'drawing' ? 'drawing' : 'question';
+      const drawing = kind === 'drawing' ? cleanDrawing(c.drawing) : null;
+      const q = kind === 'drawing' ? DRAW_PROMPT : cleanText(c.q, 160);
       const options = c.options.slice(0, 4).map((o) => cleanText(o, 60));
       const correct = Number(c.correct);
       const distinct = new Set(options.map((o) => o.toLowerCase())).size === 4;
-      if (q && options.length === 4 && options.every(Boolean) && distinct && Number.isInteger(correct) && correct >= 0 && correct < 4) {
-        custom = { q, options, correct };
+      if (q && (kind === 'question' || drawing) && options.length === 4 && options.every(Boolean) && distinct
+        && Number.isInteger(correct) && correct >= 0 && correct < 4) {
+        custom = { kind, q, options, correct };
+        if (drawing) custom.drawing = drawing;
       }
     }
     return { custom };
@@ -152,8 +180,9 @@
   //  HOST: motore di gioco
   // =====================================================================
   class HostGame {
-    constructor(code) {
+    constructor(code, mode) {
       this.code = code;
+      this.mode = mode === 'plus' ? 'plus' : 'classic';
       this.players = new Map();
       this.hostId = null;
       this.state = 'lobby';
@@ -195,7 +224,7 @@
 
     setSetup(player, data) {
       if (this.state !== 'lobby' && this.state !== 'final') return;
-      player.setup = cleanSetup(data);
+      player.setup = cleanSetup(data, this.mode);
       this.broadcast();
     }
 
@@ -360,7 +389,10 @@
       const customs = shuffle(participants.filter((p) => p.setup && p.setup.custom)).map((author) => {
         const c = author.setup.custom;
         const options = shuffle(c.options);
-        return { q: c.q, options, correct: options.indexOf(c.options[c.correct]), cat: 'bonus', authorId: author.id, authorName: author.name };
+        return {
+          q: c.q, options, correct: options.indexOf(c.options[c.correct]), cat: 'bonus',
+          kind: c.kind || 'question', drawing: c.drawing || null, authorId: author.id, authorName: author.name,
+        };
       });
       const round = [];
       questions.forEach((q, i) => {
@@ -447,19 +479,25 @@
       this.clearTimer();
       const q = this.questions[this.qIndex];
       let fooled = 0;
+      let guessed = 0;
       for (const p of this.players.values()) {
         if (!p.answer) continue;
-        p.answer.points = p.answer.choice === q.correct ? pointsFor(p.answer.ms) : 0;
+        const ok = p.answer.choice === q.correct;
+        // nel Plus chi indovina la domanda o il disegno di un giocatore prende anche un bonus
+        p.answer.bonus = ok && q.authorId && this.mode === 'plus' ? GUESS_BONUS : 0;
+        p.answer.points = ok ? pointsFor(p.answer.ms) + p.answer.bonus : 0;
         p.score += p.answer.points;
-        if (p.answer.points) p.correctCount++;
-        else fooled++;
+        if (ok) { p.correctCount++; guessed++; } else fooled++;
       }
-      // l'autore della domanda bonus guadagna punti per ogni giocatore che ha ingannato
+      // l'autore di una domanda guadagna punti per ogni giocatore ingannato,
+      // l'autore di un disegno per ogni giocatore che lo ha indovinato
       const author = q.authorId && this.players.get(q.authorId);
       if (author) {
         q.fooled = fooled;
-        author.answer = { choice: null, ms: null, points: fooled * FOOL_POINTS };
-        author.score += author.answer.points;
+        q.guessed = guessed;
+        const points = q.kind === 'drawing' ? guessed * DRAW_POINTS : fooled * FOOL_POINTS;
+        author.answer = { choice: null, ms: null, points };
+        author.score += points;
       }
       this.state = 'reveal';
       this.phaseEnds = Date.now() + REVEAL_TIME_MS;
@@ -518,6 +556,7 @@
     viewFor(player, players) {
       const view = {
         room: this.code,
+        mode: this.mode,
         state: this.state,
         you: player.id,
         hostId: this.hostId,
@@ -530,6 +569,8 @@
         pickerName: this.pickerName,
         yourSetup: player.setup,
         foolPoints: FOOL_POINTS,
+        drawPoints: DRAW_POINTS,
+        guessBonus: GUESS_BONUS,
         questionTime: QUESTION_TIME_MS,
         remainingMs: this.phaseEnds ? Math.max(0, this.phaseEnds - Date.now()) : null,
         players,
@@ -537,13 +578,16 @@
       if (this.state === 'question' || this.state === 'reveal') {
         const q = this.questions[this.qIndex];
         view.qIndex = this.qIndex;
-        view.question = { text: q.q, options: q.options, cat: q.cat, author: q.authorName || null };
+        view.question = { text: q.q, options: q.options, cat: q.cat, author: q.authorName || null, kind: q.kind || 'question' };
+        if (q.kind === 'drawing') view.question.drawing = q.drawing;
         view.isAuthor = q.authorId === player.id;
         view.yourAnswer = player.answer ? player.answer.choice : null;
         if (this.state === 'reveal') {
           view.question.correct = q.correct;
           view.question.fooled = q.fooled || 0;
+          view.question.guessed = q.guessed || 0;
           view.yourPoints = player.answer ? player.answer.points : 0;
+          view.yourBonus = player.answer ? player.answer.bonus || 0 : 0;
         }
       }
       return view;
@@ -591,7 +635,7 @@
   }
 
   // ---------- creare una stanza (host) ----------
-  async function createRoom(name, avatarIndex) {
+  async function createRoom(name, avatarIndex, mode) {
     setBusy(true, 'Creo la stanza…');
     try {
       const client = await Promise.any(BROKERS.map(connectBroker)).catch(() => {
@@ -599,7 +643,7 @@
       });
       relay = { client };
       const code = makeRoomCode();
-      const game = new HostGame(code);
+      const game = new HostGame(code, mode);
       hostGame = game;
       const me = game.addPlayer(name, (v) => onState(v), avatarIndex);
       game.hostId = me.id;
@@ -781,6 +825,7 @@
   }
   function setBusy(busy, text) {
     $('createBtn').disabled = busy;
+    $('createPlusBtn').disabled = busy;
     $('joinBtn').disabled = busy;
     $('homeInfo').textContent = busy ? text : '';
   }
@@ -835,6 +880,12 @@
     show('lobby');
     renderedKey = '';
     $('lobbyCode').textContent = view.room;
+    const plus = view.mode === 'plus';
+    $('modeBadge').textContent = plus ? 'Il Domandone Plus ✨' : 'Il Domandone · Classico';
+    $('modeBadge').classList.toggle('plus', plus);
+    document.title = plus ? 'Il Domandone Plus' : 'Il Domandone';
+    $('kindTabs').classList.toggle('hidden', !plus);
+    if (!plus && draft.custom.kind === 'drawing') setKind('question');
     $('shareLink').value = `${location.origin}${location.pathname}?room=${view.room}`;
     $('playerCount').textContent = `(${view.players.length}/${view.maxPlayers})`;
     $('lobbyPlayers').innerHTML = view.players.map((p) => `
@@ -865,7 +916,9 @@
     const boost = view.roundBoost;
     const info = boost && catInfo(boost.cat);
     $('roundInfo').innerHTML = `<div>Round da <b>${regular}</b> domande${view.bonusCount
-      ? ` + <b>${view.bonusCount}</b> ${view.bonusCount === 1 ? 'domanda scritta da un giocatore' : 'domande scritte dai giocatori'}, una ogni ${QUESTIONS_PER_PLAYER}!` : ''}</div>
+      ? ` + <b>${view.bonusCount}</b> ${view.mode === 'plus'
+        ? (view.bonusCount === 1 ? 'domanda o disegno di un giocatore' : 'domande o disegni dei giocatori')
+        : (view.bonusCount === 1 ? 'domanda scritta da un giocatore' : 'domande scritte dai giocatori')}, una ogni ${QUESTIONS_PER_PLAYER}!` : ''}</div>
       ${boost ? `<div class="cat-mix"><span class="chip on">🎯 Categoria favorita: ${info.emoji} ${esc(info.label)}${boost.by ? ' · scelta da ' + esc(boost.by) : ''}</span></div>` : ''}`;
   }
 
@@ -878,12 +931,15 @@
     $('qCounter').textContent = `${isBonus ? '⭐ ' : ''}Domanda ${view.qIndex + 1}/${view.total}`;
     $('myScore').innerHTML = `${avatar(me(), 'small')}<span>${me().score} pt</span>`;
 
+    const isDrawing = q.kind === 'drawing';
     if (key !== renderedKey) {
       renderedKey = key;
-      $('qText').textContent = q.text;
+      $('qText').textContent = isDrawing ? `Che cosa ha disegnato ${q.author}?` : q.text;
+      $('qDrawing').classList.toggle('hidden', !isDrawing);
+      if (isDrawing) drawStrokes($('qDrawing'), q.drawing);
       const info = catInfo(q.cat);
       $('qCat').className = `q-cat ${isBonus ? 'bonus' : ''}`;
-      $('qCat').textContent = isBonus ? `⭐ La domanda di ${q.author}` : `${info.emoji} ${info.label}`;
+      $('qCat').textContent = isDrawing ? `✏️ Il disegno di ${q.author}` : isBonus ? `⭐ La domanda di ${q.author}` : `${info.emoji} ${info.label}`;
       $('answers').innerHTML = q.options.map((opt, i) => `
         <button class="answer" data-i="${i}"><span class="letter">${LETTERS[i]}</span><span>${esc(opt)}</span></button>`).join('');
       $('answers').querySelectorAll('.answer').forEach((btn) => btn.addEventListener('click', () => answer(Number(btn.dataset.i))));
@@ -907,21 +963,27 @@
     const answered = online.filter((p) => p.answered).length;
     const banner = $('resultBanner');
     if (isReveal) {
-      if (view.isAuthor) {
+      const plural = (n) => `${n} giocator${n === 1 ? 'e' : 'i'}`;
+      if (view.isAuthor && isDrawing) {
+        const n = q.guessed;
+        banner.className = `banner ${n ? 'good' : 'bad'}`;
+        banner.textContent = n ? `Hanno indovinato in ${n}: +${view.yourPoints} punti!` : 'Nessuno ha indovinato il tuo disegno!';
+      } else if (view.isAuthor) {
         const n = q.fooled;
         banner.className = `banner ${n ? 'good' : 'bad'}`;
         banner.textContent = n
-          ? `Hai ingannato ${n} giocator${n === 1 ? 'e' : 'i'}: +${view.yourPoints} punti!`
+          ? `Hai ingannato ${plural(n)}: +${view.yourPoints} punti!`
           : 'Nessuno ci è cascato!';
       } else {
         const ok = view.yourAnswer === q.correct;
         banner.className = `banner ${ok ? 'good' : 'bad'}`;
         banner.textContent = ok
-          ? `Corretto! +${view.yourPoints} punti (${(me().lastMs / 1000).toFixed(2)}s)`
+          ? `Corretto! +${view.yourPoints} punti (${(me().lastMs / 1000).toFixed(2)}s)${view.yourBonus ? ` · bonus +${view.yourBonus} incluso` : ''}`
           : view.yourAnswer == null ? 'Tempo scaduto!' : 'Sbagliato!';
       }
       const fastest = view.players.filter((p) => p.lastPoints > 0 && p.lastMs != null).sort((a, b) => a.lastMs - b.lastMs)[0];
-      const author = isBonus ? ` · ${q.author} ha ingannato ${q.fooled} giocator${q.fooled === 1 ? 'e' : 'i'}` : '';
+      const author = isDrawing ? ` · ${plural(q.guessed)} ${q.guessed === 1 ? 'ha' : 'hanno'} indovinato il disegno di ${q.author}`
+        : isBonus ? ` · ${q.author} ha ingannato ${plural(q.fooled)}` : '';
       $('qStatus').textContent = (fastest ? `⚡ Il più veloce: ${fastest.name} in ${(fastest.lastMs / 1000).toFixed(2)}s` : 'Nessuno ha indovinato!') + author;
       $('revealBoard').classList.remove('hidden');
       renderBoard($('board'), true);
@@ -929,7 +991,9 @@
       banner.className = 'banner hidden';
       $('revealBoard').classList.add('hidden');
       $('qStatus').textContent = view.isAuthor
-        ? `È la tua domanda! Guadagni ${view.foolPoints} punti per ogni giocatore che sbaglia. (${answered}/${online.length} hanno risposto)`
+        ? (isDrawing
+          ? `È il tuo disegno! Guadagni ${view.drawPoints} punti per ogni giocatore che indovina. (${answered}/${online.length} hanno risposto)`
+          : `È la tua domanda! Guadagni ${view.foolPoints} punti per ogni giocatore che sbaglia. (${answered}/${online.length} hanno risposto)`)
         : view.yourAnswer != null
           ? `Risposta inviata! In attesa degli altri… (${answered}/${online.length})`
           : `${answered}/${online.length} hanno risposto`;
@@ -1002,17 +1066,43 @@
   }
   requestAnimationFrame(tick);
 
-  // ---------- preparazione: la domanda scritta dal giocatore ----------
-  const emptyDraft = () => ({ custom: { q: '', options: ['', '', '', ''], correct: 0 } });
+  // ---------- preparazione: la domanda (o il disegno) del giocatore ----------
+  const emptyDraft = () => ({ custom: { kind: 'question', q: '', options: ['', '', '', ''], correct: 0, drawing: [] } });
   let draft = emptyDraft();
-  const draftIsEmpty = () => !draft.custom.q.trim() && draft.custom.options.every((o) => !o.trim());
+  const currentMode = () => (view && view.mode) || 'classic';
+  const draftIsEmpty = () => !draft.custom.q.trim() && draft.custom.options.every((o) => !o.trim()) && !draft.custom.drawing.length;
+
+  // Cose da disegnare suggerite dal tasto "Genera", con risposte sbagliate simili.
+  const DRAW_IDEAS = [
+    ['Gatto', 'Tigre', 'Volpe', 'Cane'], ['Cane', 'Lupo', 'Gatto', 'Volpe'], ['Casa', 'Castello', 'Chiesa', 'Capanna'],
+    ['Sole', 'Stella', 'Luna', 'Girasole'], ['Albero', 'Fiore', 'Cespuglio', 'Fungo'], ['Pesce', 'Balena', 'Delfino', 'Squalo'],
+    ['Macchina', 'Camion', 'Autobus', 'Trattore'], ['Bicicletta', 'Moto', 'Monopattino', 'Carrozzina'], ['Aereo', 'Elicottero', 'Razzo', 'Aquilone'],
+    ['Nave', 'Barca a vela', 'Sottomarino', 'Canoa'], ['Pizza', 'Torta', 'Crostata', 'Frittata'], ['Gelato', 'Cono stradale', 'Lecca-lecca', 'Microfono'],
+    ['Ombrello', 'Fungo', 'Ventaglio', 'Lampada'], ['Occhiali', 'Bicicletta', 'Binocolo', 'Manubrio'], ['Chitarra', 'Violino', 'Ukulele', 'Mandolino'],
+    ['Pallone da calcio', 'Pallone da basket', 'Pallina da tennis', 'Palla da bowling'], ['Cuore', 'Fragola', 'Mela', 'Ciliegia'],
+    ['Fantasma', 'Lenzuolo', 'Nuvola', 'Medusa'], ['Serpente', 'Verme', 'Anguilla', 'Lombrico'], ['Farfalla', 'Libellula', 'Ape', 'Coccinella'],
+    ['Montagna', 'Vulcano', 'Piramide', 'Collina'], ['Telefono', 'Telecomando', 'Calcolatrice', 'Tablet'], ['Orologio', 'Bussola', 'Sveglia', 'Ruota'],
+    ['Chiave', 'Lucchetto', 'Cacciavite', 'Forchetta'], ['Corona', 'Cappello', 'Elmo', 'Tiara'], ['Razzo', 'Missile', 'Matita', 'Faro'],
+    ['Banana', 'Luna', 'Peperone', 'Zucchina'], ['Lampadina', 'Pera', 'Palloncino', 'Torcia'], ['Bottiglia', 'Vaso', 'Bicchiere', 'Lattina'],
+    ['Scarpa', 'Stivale', 'Calzino', 'Pattino'], ['Arcobaleno', 'Ponte', 'Arco', 'Altalena'], ['Fiocco di neve', 'Stella', 'Fiore', 'Ragno'],
+    ['Pupazzo di neve', 'Fantasma', 'Orso polare', 'Pinguino'], ['Ragno', 'Polpo', 'Scarafaggio', 'Granchio'], ['Coniglio', 'Lepre', 'Topo', 'Canguro'],
+    ['Elefante', 'Rinoceronte', 'Mammut', 'Ippopotamo'], ['Giraffa', 'Zebra', 'Cammello', 'Struzzo'], ['Uovo', 'Patata', 'Sasso', 'Limone'],
+    ['Robot', 'Astronauta', 'Armatura', 'Frigorifero'], ['Torre Eiffel', 'Traliccio', 'Razzo', 'Faro'], ['Dinosauro', 'Drago', 'Lucertola', 'Coccodrillo'],
+    ['Pinguino', 'Gabbiano', 'Papera', 'Gufo'], ['Tenda', 'Piramide', 'Triangolo', 'Montagna'], ['Candela', 'Accendino', 'Matita', 'Torcia'],
+  ];
 
   function fillSetupForm() {
+    const isDraw = draft.custom.kind === 'drawing';
     $('customQ').value = draft.custom.q;
     for (let i = 0; i < 4; i++) {
       $('customA' + i).value = draft.custom.options[i] || '';
       $('customC' + i).checked = draft.custom.correct === i;
     }
+    $('questionBox').classList.toggle('hidden', isDraw);
+    $('drawBox').classList.toggle('hidden', !isDraw);
+    $('answersLabel').textContent = isDraw ? 'Che cosa hai disegnato? 4 risposte · segna quella giusta' : '4 risposte · segna quella giusta';
+    for (const btn of $('kindTabs').querySelectorAll('.chip')) btn.classList.toggle('on', btn.dataset.kind === draft.custom.kind);
+    drawStrokes($('drawCanvas'), draft.custom.drawing);
   }
 
   function readSetupForm() {
@@ -1021,44 +1111,73 @@
     draft.custom.correct = [0, 1, 2, 3].find((i) => $('customC' + i).checked) ?? 0;
   }
 
+  function setKind(kind) {
+    readSetupForm();
+    draft.custom.kind = kind === 'drawing' && currentMode() === 'plus' ? 'drawing' : 'question';
+    fillSetupForm();
+    $('setupStatus').textContent = '';
+    renderSetupStatus();
+  }
+
   // A ogni round si riparte con i campi vuoti.
   function clearSetupForm() {
+    const kind = draft.custom.kind;
     draft = emptyDraft();
+    draft.custom.kind = kind;
     fillSetupForm();
     $('setupStatus').textContent = '';
   }
 
-  // Dopo un ricaricamento della pagina, recupera la domanda già inviata all'host.
+  // Dopo un ricaricamento della pagina, recupera quanto già inviato all'host.
   function syncSetupForm() {
     const saved = view && view.yourSetup && view.yourSetup.custom;
     if (saved && draftIsEmpty()) {
-      draft = { custom: { q: saved.q, options: saved.options.slice(), correct: saved.correct } };
+      draft = { custom: {
+        kind: saved.kind || 'question', q: saved.kind === 'drawing' ? '' : saved.q, options: saved.options.slice(),
+        correct: saved.correct, drawing: saved.drawing ? saved.drawing.map((st) => st.slice()) : [],
+      } };
       fillSetupForm();
     }
   }
 
-  // Riempie i campi con una domanda a caso della banca, che poi si può modificare.
+  // Riempie i campi con una domanda a caso della banca (o, per il disegno, con cosa disegnare).
   function generateQuestion() {
+    readSetupForm();
+    if (draft.custom.kind === 'drawing') {
+      let idea;
+      do { idea = DRAW_IDEAS[randomInt(DRAW_IDEAS.length)]; } while (draft.custom.options.includes(idea[0]));
+      const options = shuffle(idea);
+      draft.custom.options = options;
+      draft.custom.correct = options.indexOf(idea[0]);
+      fillSetupForm();
+      $('setupStatus').textContent = `Ora disegna: ${idea[0]}!`;
+      renderSetupStatus();
+      return;
+    }
     const all = Object.values(window.QUESTIONS).flat();
     let item;
     do { item = all[randomInt(all.length)]; } while (all.length > 1 && item.q === draft.custom.q);
     const options = shuffle([item.a, ...item.w]);
-    draft = { custom: { q: item.q, options, correct: options.indexOf(item.a) } };
+    draft.custom = { kind: 'question', q: item.q, options, correct: options.indexOf(item.a), drawing: [] };
     fillSetupForm();
     $('setupStatus').textContent = '';
     renderSetupStatus();
   }
 
   function setupProblem() {
-    const clean = cleanSetup(draft);
-    if (!cleanText(draft.custom.q, 160)) return 'Scrivi la tua domanda.';
+    const clean = cleanSetup(draft, currentMode());
+    if (draft.custom.kind === 'drawing') {
+      if (!draft.custom.drawing.length) return 'Fai un disegno nel riquadro.';
+    } else if (!cleanText(draft.custom.q, 160)) {
+      return 'Scrivi la tua domanda.';
+    }
     if (draft.custom.options.some((o) => !cleanText(o, 60))) return 'Scrivi tutte e 4 le risposte.';
     if (!clean.custom) return 'Le 4 risposte devono essere diverse tra loro.';
     return null;
   }
 
   function sameSetup(a, b) {
-    return !!a && !!b && JSON.stringify(cleanSetup(a)) === JSON.stringify(cleanSetup(b));
+    return !!a && !!b && JSON.stringify(cleanSetup(a, currentMode())) === JSON.stringify(cleanSetup(b, currentMode()));
   }
 
   function renderSetupStatus() {
@@ -1071,6 +1190,66 @@
     if (ready) $('setupStatus').textContent = synced ? '' : 'Hai modifiche non salvate.';
   }
 
+  // ---------- disegno: tratti salvati come coordinate 0-1000 ----------
+  function drawStrokes(canvas, strokes) {
+    const ctx = canvas.getContext('2d');
+    const size = canvas.width;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, size, size);
+    ctx.strokeStyle = '#1a1235';
+    ctx.lineWidth = size * 0.012;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const st of strokes || []) {
+      ctx.beginPath();
+      ctx.moveTo((st[0] * size) / 1000, (st[1] * size) / 1000);
+      if (st.length === 2) ctx.lineTo((st[0] * size) / 1000 + 0.1, (st[1] * size) / 1000);
+      for (let i = 2; i < st.length; i += 2) ctx.lineTo((st[i] * size) / 1000, (st[i + 1] * size) / 1000);
+      ctx.stroke();
+    }
+  }
+
+  (function setupDrawPad() {
+    const canvas = $('drawCanvas');
+    let current = null;
+    const pointCount = () => draft.custom.drawing.reduce((n, st) => n + st.length / 2, 0);
+    const pos = (e) => {
+      const r = canvas.getBoundingClientRect();
+      return [Math.round(((e.clientX - r.left) / r.width) * 1000), Math.round(((e.clientY - r.top) / r.height) * 1000)]
+        .map((v) => Math.max(0, Math.min(1000, v)));
+    };
+    canvas.addEventListener('pointerdown', (e) => {
+      if (pointCount() >= DRAW_MAX_POINTS) { $('setupStatus').textContent = 'Il disegno è troppo complesso: cancella qualcosa.'; return; }
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+      current = pos(e);
+      draft.custom.drawing.push(current);
+      drawStrokes(canvas, draft.custom.drawing);
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!current) return;
+      const [x, y] = pos(e);
+      const lx = current[current.length - 2];
+      const ly = current[current.length - 1];
+      if (Math.hypot(x - lx, y - ly) < 6 || pointCount() >= DRAW_MAX_POINTS) return; // salta i punti troppo vicini
+      current.push(x, y);
+      drawStrokes(canvas, draft.custom.drawing);
+    });
+    const end = () => {
+      if (!current) return;
+      current = null;
+      renderSetupStatus();
+    };
+    canvas.addEventListener('pointerup', end);
+    canvas.addEventListener('pointercancel', end);
+    $('undoStrokeBtn').onclick = () => { draft.custom.drawing.pop(); drawStrokes(canvas, draft.custom.drawing); renderSetupStatus(); };
+    $('clearDrawBtn').onclick = () => { draft.custom.drawing = []; drawStrokes(canvas, draft.custom.drawing); renderSetupStatus(); };
+  })();
+
+  $('kindTabs').addEventListener('click', (e) => {
+    const btn = e.target.closest('.chip');
+    if (btn) setKind(btn.dataset.kind);
+  });
   $('setupForm').addEventListener('input', () => { readSetupForm(); renderSetupStatus(); });
   $('generateBtn').onclick = generateQuestion;
   $('readyBtn').onclick = () => {
@@ -1078,7 +1257,7 @@
     const problem = setupProblem();
     if (problem) { $('setupStatus').textContent = problem; return; }
     $('setupStatus').textContent = '';
-    sendAction({ t: 'setup', setup: cleanSetup(draft) });
+    sendAction({ t: 'setup', setup: cleanSetup(draft, currentMode()) });
   };
   fillSetupForm();
 
@@ -1120,7 +1299,12 @@
   $('createBtn').onclick = () => {
     $('homeError').textContent = '';
     const name = readName();
-    if (name) createRoom(name, homeAvatar);
+    if (name) createRoom(name, homeAvatar, 'classic');
+  };
+  $('createPlusBtn').onclick = () => {
+    $('homeError').textContent = '';
+    const name = readName();
+    if (name) createRoom(name, homeAvatar, 'plus');
   };
   $('joinBtn').onclick = () => {
     $('homeError').textContent = '';

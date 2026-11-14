@@ -15,6 +15,15 @@ Le domande sono divise in **10 categorie**: geografia e viaggi, storia, scienza 
 7. Chi ha più punti **vince il round**. Chi ne ha fatti meno sceglie la **categoria favorita**, che nel round successivo uscirà circa 3 volte più spesso delle altre.
 8. L'host passa al round successivo: i campi della domanda si svuotano e ognuno ne scrive (o genera) una nuova.
 
+## Il Domandone Plus ✨
+
+Nella schermata iniziale si può creare una stanza **Classico** o una stanza **Plus**. Il Plus usa le stesse domande, le stesse categorie e le stesse regole del Classico (domande aggiunte in `public/questions.js` valgono per entrambi), con queste differenze:
+
+- in lobby ogni giocatore sceglie se preparare una **❓ domanda** oppure un **✏️ disegno**: si disegna con il dito o con il mouse in un riquadro e si scrivono 4 risposte a "Che cosa ho disegnato?", segnando quella giusta. Il tasto "Genera" suggerisce cosa disegnare;
+- l'autore di una **domanda** guadagna **250 punti per ogni giocatore che sbaglia** (come nel Classico);
+- l'autore di un **disegno** guadagna **250 punti per ogni giocatore che indovina**;
+- chi indovina una domanda o un disegno di un giocatore prende **200 punti bonus**, oltre ai punti per la velocità.
+
 ## Come funziona il collegamento
 
 Il gioco è un **sito statico**: non serve un server tuo sempre acceso.

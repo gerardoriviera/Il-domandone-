@@ -146,6 +146,15 @@
   .hint { font-size: .8rem; margin-top: 6px; }
   .label-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
   .label-row label { margin: 0; }
+  .mode-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .mode-pick button { line-height: 1.35; padding: 14px 10px; }
+  .mode-pick b { font-size: 1.05rem; }
+  .mode-pick small { display: block; font-weight: 600; opacity: .75; margin-top: 2px; }
+  .plus-btn { background: linear-gradient(135deg, #ff7ab6, #b05cff); color: #fff; }
+  .mode-badge { display: table; margin: 0 auto; padding: 5px 14px; border-radius: 99px; background: #ffffff14; font-weight: 800; }
+  .mode-badge.plus { background: linear-gradient(135deg, #ff7ab6, #b05cff); color: #fff; }
+  .draw-canvas { display: block; width: 100%; max-width: 420px; aspect-ratio: 1; margin: 0 auto; border-radius: 12px; background: #fff; touch-action: none; cursor: crosshair; }
+  .q-drawing { max-width: min(340px, 34vh); margin-bottom: 12px; cursor: default; box-shadow: 0 6px 20px #0006; }
   button.small { padding: 8px 12px; font-size: .9rem; }
   .chips, .cat-mix { display: flex; flex-wrap: wrap; gap: 8px; }
   .cat-mix { justify-content: center; margin-top: 10px; }
@@ -175,7 +184,7 @@
   <!-- HOME -->
   <section id="home">
     <div class="logo">Il <span>Domandone</span></div>
-    <div class="subtitle">Quiz multigiocatore di cultura generale con 10 categorie · fino a 9 giocatori</div>
+    <div class="subtitle">Quiz multigiocatore di cultura generale con 10 categorie · fino a 9 giocatori · nel Plus si disegna!</div>
     <div class="card stack">
       <div>
         <label for="nameInput">Il tuo nickname</label>
@@ -185,7 +194,10 @@
         <label>Scegli la tua immagine</label>
         <div class="avatar-grid" id="homeAvatars"></div>
       </div>
-      <button id="createBtn" style="width:100%">Crea una nuova stanza</button>
+      <div class="mode-pick">
+        <button id="createBtn">Crea stanza<br><b>Il Domandone</b><small>Classico</small></button>
+        <button id="createPlusBtn" class="plus-btn">Crea stanza<br><b>Il Domandone Plus ✨</b><small>con i disegni</small></button>
+      </div>
       <div class="divider">— oppure entra in una stanza —</div>
       <div class="row">
         <input id="codeInput" maxlength="4" placeholder="CODICE" autocomplete="off">
@@ -202,6 +214,7 @@
   <!-- LOBBY -->
   <section id="lobby" class="hidden stack">
     <div class="card stack center">
+      <div class="mode-badge" id="modeBadge">Il Domandone</div>
       <div class="muted">Codice stanza</div>
       <div class="room-code" id="lobbyCode">----</div>
       <div class="share">
@@ -220,17 +233,30 @@
     </div>
     <div class="card stack hidden" id="boostLobby"></div>
     <div class="card stack" id="setupForm">
-      <h3>Prepara la partita</h3>
-      <div>
-        <div class="label-row">
-          <label for="customQ">Scrivi una domanda per gli altri</label>
-          <button id="generateBtn" type="button" class="ghost small">🎲 Genera</button>
-        </div>
+      <div class="label-row">
+        <h3 style="margin:0">Prepara la partita</h3>
+        <button id="generateBtn" type="button" class="ghost small">🎲 Genera</button>
+      </div>
+      <div class="chips hidden" id="kindTabs">
+        <button type="button" class="chip on" data-kind="question">❓ Domanda</button>
+        <button type="button" class="chip" data-kind="drawing">✏️ Disegno</button>
+      </div>
+      <div id="questionBox">
+        <label for="customQ">Scrivi una domanda per gli altri</label>
         <textarea id="customQ" maxlength="160" rows="2" placeholder="Es. Qual è il mio anime preferito?"></textarea>
         <div class="muted hint">Non hai idee? Premi "Genera" per averne una già pronta, poi modificala come vuoi. In ogni round escono le domande di tutti i giocatori, una ogni 5: l'autore non risponde, ma guadagna punti per ogni giocatore che sbaglia!</div>
       </div>
+      <div id="drawBox" class="hidden">
+        <label>Disegna qualcosa con il dito o con il mouse</label>
+        <canvas id="drawCanvas" class="draw-canvas" width="600" height="600"></canvas>
+        <div class="row" style="margin-top:8px">
+          <button type="button" id="undoStrokeBtn" class="ghost small">↩️ Annulla tratto</button>
+          <button type="button" id="clearDrawBtn" class="ghost small">🗑️ Cancella tutto</button>
+        </div>
+        <div class="muted hint">Premi "Genera" per un'idea su cosa disegnare. Gli altri dovranno indovinarlo: guadagni punti per ogni giocatore che indovina, e chi indovina prende un bonus!</div>
+      </div>
       <div class="custom-answers">
-        <label>4 risposte · segna quella giusta</label>
+        <label id="answersLabel">4 risposte · segna quella giusta</label>
         <label class="custom-a"><input type="radio" name="customCorrect" id="customC0"><input id="customA0" maxlength="60" placeholder="Risposta 1"></label>
         <label class="custom-a"><input type="radio" name="customCorrect" id="customC1"><input id="customA1" maxlength="60" placeholder="Risposta 2"></label>
         <label class="custom-a"><input type="radio" name="customCorrect" id="customC2"><input id="customA2" maxlength="60" placeholder="Risposta 3"></label>
@@ -265,6 +291,7 @@
     <div class="timer"><div id="timerBar"></div></div>
     <div id="resultBanner" class="banner hidden"></div>
     <div class="q-cat" id="qCat"></div>
+    <canvas id="qDrawing" class="draw-canvas q-drawing hidden" width="600" height="600"></canvas>
     <div class="card question" id="qText"></div>
     <div class="answers" id="answers"></div>
     <div class="status" id="qStatus"></div>
