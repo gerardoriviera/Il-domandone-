@@ -12,8 +12,9 @@ Le domande sono divise in **10 categorie**: geografia e viaggi, storia, scienza 
 4. L'host avvia la partita. Un round ha **5 domande per ogni giocatore** (es. 3 giocatori = 15 domande), estratte a caso tra le 10 categorie. Ogni domanda ha sempre **4 risposte**, una sola giusta. Attenzione: a volte le risposte sbagliate sono molto simili a quella giusta (es. *Canberra* / *Camberra*), per ingannare chi non legge bene!
 5. Hai 20 secondi per rispondere. Se rispondi giusto guadagni da **750 punti** (risposta istantanea) a **500 punti** (all'ultimo secondo): **più sei veloce, più punti fai**. Una risposta sbagliata vale 0.
 6. In ogni round escono **le domande scritte da tutti i giocatori**, una dopo ogni 5 domande normali. L'autore non risponde, ma guadagna **250 punti per ogni giocatore che sbaglia**.
-7. Chi ha più punti **vince il round**. Chi ne ha fatti meno sceglie la **categoria favorita**, che nel round successivo uscirà circa 3 volte più spesso delle altre.
-8. L'host passa al round successivo: i campi della domanda si svuotano e ognuno ne scrive (o genera) una nuova.
+7. In fondo alla pagina, durante la partita, c'è il pulsante **🏳️ Facciamola finita**: se più della metà dei giocatori lo preme entro 10 secondi, la partita si chiude subito e si va alla classifica con i punti fatti fino a quel momento.
+8. Chi ha più punti **vince il round**. Chi ne ha fatti meno sceglie la **categoria favorita**, che nel round successivo uscirà circa 3 volte più spesso delle altre.
+9. L'host passa al round successivo: i campi della domanda si svuotano e ognuno ne scrive (o genera) una nuova.
 
 ## Il Domandone Plus ✨
 

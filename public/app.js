@@ -29,6 +29,9 @@
   const GUESS_TILES = 16;           // immagine divisa in 4x4 tessere
   const GUESS_END_MS = 5000;
   const GUESS_POINTS = 2 * 750;     // come due risposte corrette date subito
+  // "Facciamola finita": se più della metà dei giocatori lo preme entro questo tempo, il round finisce
+  const QUIT_WINDOW_MS = 10000;
+  const PLAYING_STATES = ['countdown', 'question', 'reveal', 'wsession', 'guess', 'guessEnd', 'powerup'];
   const POWERUP_SCREEN_MS = 7000;
   // Power-up del Plus (si usano durante le domande normali, prima di rispondere, uno per domanda)
   const POWERUPS = {
@@ -284,6 +287,7 @@
       else if (msg.t === 'power') this.usePowerup(player, msg.type);
       else if (msg.t === 'wanswer') this.wsAnswer(player, msg.idx, msg.choice, msg.ms);
       else if (msg.t === 'guess') this.guessTry(player, msg.text);
+      else if (msg.t === 'quit') this.voteQuit(player);
       else if (msg.t === 'avatar') this.setAvatar(player, msg.avatar);
       else if (msg.t === 'setup') this.setSetup(player, msg.setup);
       else if (msg.t === 'boost') this.setBoost(player, msg.cat);
@@ -476,9 +480,61 @@
         p.powerups = p.powerups || []; // i power-up non usati restano per il round successivo
       }
       this.award = null;
+      this.quitVotes = new Map();
+      this.quitEnded = false;
       this.state = 'countdown';
       this.phaseEnds = Date.now() + COUNTDOWN_MS;
       this.timer = setTimeout(() => this.nextQuestion(), COUNTDOWN_MS);
+      this.broadcast();
+    }
+
+    finishRound() {
+      this.state = 'final';
+      this.phaseEnds = null;
+      // chi ha fatto meno punti sceglie la categoria favorita del prossimo round
+      const online = this.online();
+      const min = Math.min(...online.map((p) => p.score));
+      const last = online.filter((p) => p.score === min);
+      const picker = last.length ? last[randomInt(last.length)] : null;
+      this.pickerId = picker ? picker.id : null;
+      this.pickerName = picker ? picker.name : null;
+      this.boostCat = null;
+      // a ogni round i giocatori scrivono una domanda nuova
+      for (const p of this.players.values()) p.setup = null;
+      // chi è offline alla fine del round ha un po' di tempo per tornare, poi esce
+      for (const p of this.players.values()) {
+        if (!p.connected) p.leaveTimer = setTimeout(() => !p.connected && this.remove(p), LOBBY_GRACE_MS);
+      }
+      this.broadcast();
+    }
+
+    // ----- "Facciamola finita": voto per chiudere subito il round -----
+    activeQuitVotes() {
+      const now = Date.now();
+      const online = new Set(this.online().map((p) => p.id));
+      for (const [id, t] of this.quitVotes) if (now - t > QUIT_WINDOW_MS || !online.has(id)) this.quitVotes.delete(id);
+      return this.quitVotes;
+    }
+
+    quitNeeded() {
+      return Math.floor(this.online().length / 2) + 1; // più della metà dei giocatori collegati
+    }
+
+    voteQuit(player) {
+      if (!PLAYING_STATES.includes(this.state)) return;
+      this.quitVotes = this.quitVotes || new Map();
+      this.activeQuitVotes();
+      if (this.quitVotes.has(player.id)) return;
+      this.quitVotes.set(player.id, Date.now());
+      if (this.quitVotes.size >= this.quitNeeded()) {
+        this.clearTimer();
+        this.quitVotes.clear();
+        this.quitEnded = true;
+        this.finishRound();
+        return;
+      }
+      // quando il voto scade, tutti devono vedere il contatore aggiornato
+      setTimeout(() => { if (PLAYING_STATES.includes(this.state)) this.broadcast(); }, QUIT_WINDOW_MS + 100);
       this.broadcast();
     }
 
@@ -486,23 +542,7 @@
       this.clearTimer();
       this.qIndex++;
       if (this.qIndex >= this.questions.length) {
-        this.state = 'final';
-        this.phaseEnds = null;
-        // chi ha fatto meno punti sceglie la categoria favorita del prossimo round
-        const online = this.online();
-        const min = Math.min(...online.map((p) => p.score));
-        const last = online.filter((p) => p.score === min);
-        const picker = last.length ? last[randomInt(last.length)] : null;
-        this.pickerId = picker ? picker.id : null;
-        this.pickerName = picker ? picker.name : null;
-        this.boostCat = null;
-        // a ogni round i giocatori scrivono una domanda nuova
-        for (const p of this.players.values()) p.setup = null;
-        // chi è offline alla fine del round ha un po' di tempo per tornare, poi esce
-        for (const p of this.players.values()) {
-          if (!p.connected) p.leaveTimer = setTimeout(() => !p.connected && this.remove(p), LOBBY_GRACE_MS);
-        }
-        this.broadcast();
+        this.finishRound();
         return;
       }
       const q = this.questions[this.qIndex];
@@ -857,6 +897,8 @@
         questionTime: QUESTION_TIME_MS,
         remainingMs: this.phaseEnds ? Math.max(0, Math.min(this.phaseEnds, player.deadline || Infinity) - Date.now()) : null,
         wrongCount: this.questions.filter((q) => q.type === 'wsession').length,
+        quit: this.quitView(player),
+        quitEnded: this.state === 'final' && !!this.quitEnded,
         myPowerups: player.powerups || [],
         award: this.state === 'powerup' ? this.award : null,
         players,
@@ -910,6 +952,17 @@
         }
       }
       return view;
+    }
+
+    quitView(player) {
+      if (!PLAYING_STATES.includes(this.state)) return null;
+      const votes = this.quitVotes ? this.activeQuitVotes() : new Map();
+      const names = [...votes.keys()].map((id) => (this.players.get(id) || {}).name).filter(Boolean);
+      const first = Math.min(...votes.values());
+      return {
+        votes: votes.size, needed: this.quitNeeded(), names, youVoted: votes.has(player.id),
+        leftMs: votes.size ? Math.max(0, QUIT_WINDOW_MS - (Date.now() - first)) : 0,
+      };
     }
 
     broadcast() {
@@ -1122,6 +1175,7 @@
       else if (msg.t === 'power') hostGame.usePowerup(me, msg.type);
       else if (msg.t === 'wanswer') hostGame.wsAnswer(me, msg.idx, msg.choice, msg.ms);
       else if (msg.t === 'guess') hostGame.guessTry(me, msg.text);
+      else if (msg.t === 'quit') hostGame.voteQuit(me);
     } else {
       sendToHost(msg);
     }
@@ -1195,6 +1249,7 @@
     if (s.state === 'question' && prevKey !== `question:${s.qIndex}`) questionShownAt = performance.now();
     if (s.state === 'final' && !prevKey.startsWith('final')) clearSetupForm(); // nuovo round, nuova domanda
     if (s.state !== 'final') celebrated = false;
+    renderQuit();
     if (s.state === 'lobby') renderLobby();
     else if (s.state === 'countdown') renderCountdown();
     else if (s.state === 'question' || s.state === 'reveal') renderGame();
@@ -1515,6 +1570,33 @@
   });
   $('gTryBtn').onclick = sendGuess;
 
+  // ---------- "Facciamola finita" ----------
+  let quitDeadline = 0;
+  function renderQuit() {
+    const q = view && view.quit;
+    $('quitBar').classList.toggle('hidden', !q);
+    if (!q) return;
+    quitDeadline = q.votes ? performance.now() + q.leftMs : 0;
+    $('quitBtn').disabled = q.youVoted;
+    $('quitBtn').textContent = q.votes ? `🏳️ Facciamola finita (${q.votes}/${q.needed})` : '🏳️ Facciamola finita';
+    $('quitBtn').classList.toggle('voting', q.votes > 0);
+    updateQuitInfo();
+  }
+  function updateQuitInfo() {
+    const q = view && view.quit;
+    if (!q || !q.votes) { $('quitInfo').textContent = ''; return; }
+    const left = Math.max(0, Math.ceil((quitDeadline - performance.now()) / 1000));
+    const missing = q.needed - q.votes;
+    $('quitInfo').textContent = q.youVoted
+      ? `Hai votato: ne serv${missing === 1 ? 'e' : 'ono'} ancora ${missing} entro ${left}s`
+      : `${q.names.join(', ')} ${q.names.length === 1 ? 'vuole' : 'vogliono'} finirla! Premi entro ${left}s per chiudere la partita`;
+  }
+  $('quitBtn').onclick = () => {
+    if (!view || !view.quit || view.quit.youVoted) return;
+    $('quitBtn').disabled = true;
+    sendAction({ t: 'quit' });
+  };
+
   function renderPowerup() {
     show('powerup');
     renderedKey = '';
@@ -1547,6 +1629,7 @@
     renderedKey = '';
     const [p1, p2, p3] = view.players;
     const tied = view.players.filter((p) => p.score === p1.score);
+    $('quitNote').classList.toggle('hidden', !view.quitEnded);
     $('winnerText').innerHTML = tied.length > 1
       ? `🏆 Pareggio tra <span>${tied.map((p) => esc(p.name)).join(', ')}</span>!`
       : `🏆 Vince <span>${esc(p1.name)}</span> con ${p1.score} punti!`;
@@ -1579,6 +1662,7 @@
 
   // timer animato
   function tick() {
+    if (view && view.quit && view.quit.votes) updateQuitInfo();
     if (view && deadline != null) {
       const left = Math.max(0, deadline - performance.now());
       if (view.state === 'question') {
