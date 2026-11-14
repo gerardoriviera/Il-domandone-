@@ -2324,3 +2324,29 @@ window.GUESS_IMAGES = [
   { cat: "tech", word: "TELEGRAFO", img: "indovina/telegrafo.webp" },
   { cat: "cultura", word: "PIETA", img: "indovina/pieta.webp" },
 ];
+
+// Canzoni del gioco "SARABAMBA" (versione Plus): melodie di pubblico dominio, suonate dal
+// browser nota per nota (nessun file audio). `notes` è una lista "nota:durata" (in battiti,
+// R = pausa), `bpm` la velocità. `answers` sono i titoli accettati (maiuscole e accenti non contano).
+window.SONGS = [
+  { title: "Fra Martino", answers: ["fra martino", "frere jacques", "fra martino campanaro"], bpm: 110,
+    notes: "C4:1 D4:1 E4:1 C4:1 C4:1 D4:1 E4:1 C4:1 E4:1 F4:1 G4:2 E4:1 F4:1 G4:2 G4:0.5 A4:0.5 G4:0.5 F4:0.5 E4:1 C4:1 G4:0.5 A4:0.5 G4:0.5 F4:0.5 E4:1 C4:1 C4:1 G3:1 C4:2 C4:1 G3:1 C4:2" },
+  { title: "Jingle Bells", answers: ["jingle bells", "jingle bell"], bpm: 150,
+    notes: "E4:1 E4:1 E4:2 E4:1 E4:1 E4:2 E4:1 G4:1 C4:1.5 D4:0.5 E4:4 F4:1 F4:1 F4:1.5 F4:0.5 F4:1 E4:1 E4:1 E4:0.5 E4:0.5 E4:1 D4:1 D4:1 E4:1 D4:2 G4:2 E4:1 E4:1 E4:2 E4:1 E4:1 E4:2 E4:1 G4:1 C4:1.5 D4:0.5 E4:4 F4:1 F4:1 F4:1.5 F4:0.5 F4:1 E4:1 E4:1 E4:0.5 E4:0.5 G4:1 G4:1 F4:1 D4:1 C4:4" },
+  { title: "Per Elisa", answers: ["per elisa", "fur elise"], bpm: 75,
+    notes: "E5:0.5 D#5:0.5 E5:0.5 D#5:0.5 E5:0.5 B4:0.5 D5:0.5 C5:0.5 A4:1.5 C4:0.5 E4:0.5 A4:0.5 B4:1.5 E4:0.5 G#4:0.5 B4:0.5 C5:1.5 E4:0.5 E5:0.5 D#5:0.5 E5:0.5 D#5:0.5 E5:0.5 B4:0.5 D5:0.5 C5:0.5 A4:1.5 C4:0.5 E4:0.5 A4:0.5 B4:1.5 E4:0.5 C5:0.5 B4:0.5 A4:2" },
+  { title: "Inno alla gioia", answers: ["inno alla gioia", "ode alla gioia", "ode to joy", "nona sinfonia", "inno europeo"], bpm: 120,
+    notes: "E4:1 E4:1 F4:1 G4:1 G4:1 F4:1 E4:1 D4:1 C4:1 C4:1 D4:1 E4:1 E4:1.5 D4:0.5 D4:2 E4:1 E4:1 F4:1 G4:1 G4:1 F4:1 E4:1 D4:1 C4:1 C4:1 D4:1 E4:1 D4:1.5 C4:0.5 C4:2" },
+  { title: "Tanti auguri", answers: ["tanti auguri", "tanti auguri a te", "happy birthday", "buon compleanno"], bpm: 100,
+    notes: "G3:0.75 G3:0.25 A3:1 G3:1 C4:1 B3:2 G3:0.75 G3:0.25 A3:1 G3:1 D4:1 C4:2 G3:0.75 G3:0.25 G4:1 E4:1 C4:1 B3:1 A3:2 F4:0.75 F4:0.25 E4:1 C4:1 D4:1 C4:2" },
+  { title: "La cucaracha", answers: ["la cucaracha", "cucaracha"], bpm: 170,
+    notes: "C4:0.5 C4:0.5 C4:0.5 F4:1.5 A4:1 C4:0.5 C4:0.5 C4:0.5 F4:1.5 A4:2 F4:1 F4:0.5 E4:0.5 E4:0.5 D4:0.5 D4:0.5 C4:2 C4:0.5 C4:0.5 C4:0.5 E4:1.5 G4:1 C4:0.5 C4:0.5 C4:0.5 E4:1.5 G4:2 C5:1 D5:0.5 C5:0.5 Bb4:0.5 A4:0.5 G4:0.5 F4:2" },
+  { title: "Marcia nuziale", answers: ["marcia nuziale", "marcia nuziale di wagner", "here comes the bride"], bpm: 80,
+    notes: "C4:1 F4:0.75 F4:0.25 F4:2 C4:1 G4:0.75 E4:0.25 F4:2 C4:1 F4:0.75 Bb4:0.25 Bb4:1 A4:0.75 G4:0.25 F4:0.75 E4:0.25 F4:0.75 G4:0.25 F4:2 R:1" },
+  { title: "Ninna nanna di Brahms", answers: ["ninna nanna", "ninna nanna di brahms", "berceuse"], bpm: 95,
+    notes: "E4:0.5 E4:0.5 G4:2 E4:0.5 E4:0.5 G4:2 E4:0.5 G4:0.5 C5:1 B4:1.5 A4:0.5 A4:1 G4:1 D4:0.5 E4:0.5 F4:1 D4:1 D4:0.5 E4:0.5 F4:2 D4:0.5 F4:0.5 B4:0.5 A4:0.5 G4:1 B4:1 C5:3" },
+  { title: "Can can", answers: ["can can", "cancan", "galop infernale"], bpm: 150,
+    notes: "G4:1 G4:1 A4:0.5 C5:0.5 B4:0.5 A4:0.5 D5:1 D5:1 D5:1 E5:0.5 B4:0.5 C5:1 A4:1 A4:1 A4:1 C5:0.5 B4:0.5 A4:0.5 G4:0.5 G5:0.5 F#5:0.5 E5:0.5 D5:0.5 C5:0.5 B4:0.5 A4:0.5 G4:0.5 G4:1 G4:1 A4:0.5 C5:0.5 B4:0.5 A4:0.5 D5:1 D5:1 D5:1 E5:0.5 B4:0.5 C5:1 A4:1 A4:1 A4:1 C5:0.5 B4:0.5 A4:0.5 G4:0.5 D5:0.5 B4:0.5 G4:2" },
+  { title: "Marcia turca", answers: ["marcia turca", "rondo alla turca", "alla turca"], bpm: 120,
+    notes: "B4:0.25 A4:0.25 G#4:0.25 A4:0.25 C5:1 D5:0.25 C5:0.25 B4:0.25 C5:0.25 E5:1 F5:0.25 E5:0.25 D#5:0.25 E5:0.25 B5:0.25 A5:0.25 G#5:0.25 A5:0.25 B5:0.25 A5:0.25 G#5:0.25 A5:0.25 C6:2 A5:0.5 C6:0.5 B5:0.5 A5:0.5 G5:0.5 A5:0.5 B5:0.5 A5:0.5 G5:0.5 A5:0.5 B5:0.5 A5:0.5 G5:0.5 F#5:0.5 E5:2" },
+];

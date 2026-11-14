@@ -25,6 +25,12 @@ Nella schermata iniziale si può creare una stanza **Classico** o una stanza **P
 - l'autore di un **disegno** guadagna **250 punti per ogni giocatore che indovina**;
 - chi indovina una domanda o un disegno di un giocatore prende **200 punti bonus**, oltre ai punti per la velocità.
 
+### SARABAMBA 🎵
+
+Una volta per round, in una posizione a caso, parte una canzone su tutti i dispositivi. Il primo che preme **"Prenota!"** ferma la musica e ha **7 secondi** per scrivere il titolo: se indovina vince **750 punti** e un **power-up**; se sbaglia o lascia scadere il tempo perde **250 punti** e non può più rispondere a quella canzone, e la musica riparte per gli altri. Maiuscole, accenti e un errore di battitura nelle parole lunghe non contano.
+
+Le canzoni sono melodie di **pubblico dominio** (Fra Martino, Jingle Bells, Per Elisa, Inno alla gioia, Tanti auguri, La cucaracha, Marcia nuziale, Ninna nanna di Brahms, Can can, Marcia turca) che il browser suona nota per nota, senza file audio. Si elencano in `window.SONGS` dentro `public/questions.js`: per aggiungerne una servono il titolo, i titoli accettati, la velocità e le note.
+
 ### Cliccami 🔴
 
 Una volta per round, in una posizione a caso, compare un grande **bottone rosso**: dopo un conto alla rovescia di 3 secondi, chi lo preme più volte in **5 secondi** vince **750 punti** (come una risposta corretta data subito) e un **power-up**, che si aggiunge a quelli che ha già. Tutti vedono dal vivo i clic degli altri.
@@ -37,7 +43,7 @@ Le immagini (generate con Nano Banana, ognuna è un indovinello su qualcosa di r
 
 ### La risposta sbagliata 🙃 e i power-up ⚡
 
-Nel Plus, dopo ogni blocco di 5 domande (prima della domanda o del disegno di un giocatore) arriva una sessione speciale: **La risposta sbagliata**. Sono 3 domande lampo con solo 2 risposte, una vera e una falsa, prese da una banca dedicata di 100 domande (`window.WRONG_SESSION_QUESTIONS` in `public/questions.js`, 10 per categoria): **fa punti chi sceglie quella falsa** (da 150 a 100 punti, meno delle domande normali).
+Nel Plus i blocchi sono di **3 domande** per giocatore. Dopo ogni blocco di 3 domande (prima della domanda o del disegno di un giocatore) arriva una sessione speciale: **La risposta sbagliata**. Sono 3 domande lampo con solo 2 risposte, una vera e una falsa, prese da una banca dedicata di 100 domande (`window.WRONG_SESSION_QUESTIONS` in `public/questions.js`, 10 per categoria): **fa punti chi sceglie quella falsa** (da 150 a 100 punti, meno delle domande normali).
 
 Ognuno gioca **al proprio ritmo**: hai **5 secondi** per domanda e, appena rispondi (o il tempo scade), passi subito alla successiva. **Chi risponde per primo a tutte e 3** prende **100 punti bonus**, che contano per vincere la sessione. Lo schermo mostra a che punto sono gli altri giocatori.
 

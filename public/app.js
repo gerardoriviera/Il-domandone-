@@ -7,7 +7,9 @@
   // quindi il numero massimo di giocatori è limitato anche dal numero di immagini.
   const AVATARS = ['pomodoro', 'arancia', 'broccolo', 'banana', 'anguria', 'carota', 'uva', 'mela', 'ananas'];
   const MAX_PLAYERS = Math.min(10, AVATARS.length);
-  const QUESTIONS_PER_PLAYER = 5; // un round ha 5 domande per ogni giocatore
+  const QUESTIONS_PER_PLAYER = 5; // nel Classico un round ha 5 domande per ogni giocatore
+  const PLUS_QUESTIONS_PER_PLAYER = 3; // nel Plus i blocchi sono più corti: 3 domande per giocatore
+  const perPlayer = (mode) => (mode === 'plus' ? PLUS_QUESTIONS_PER_PLAYER : QUESTIONS_PER_PLAYER);
   const BOOST_WEIGHT = 3; // la categoria favorita esce circa 3 volte più spesso delle altre
   const FOOL_POINTS = 250; // punti all'autore della domanda bonus per ogni giocatore che sbaglia
   // Solo nella versione Plus:
@@ -34,10 +36,16 @@
   const CLICK_TIME_MS = 5000;
   const CLICK_END_MS = 5000;
   const CLICK_POINTS = 750;         // come una risposta corretta data subito
-  const SPECIAL_TYPES = ['wsession', 'guess', 'click']; // non contano come domande numerate
+  const SPECIAL_TYPES = ['wsession', 'guess', 'click', 'song']; // non contano come domande numerate
+  // Plus: "SARABAMBA" — parte una canzone, chi si prenota per primo ha 7 secondi per scrivere il titolo
+  const SONG_PLAY_MS = 30000;       // musica massima (le pause per le prenotazioni non contano)
+  const SONG_ANSWER_MS = 7000;
+  const SONG_POINTS = 750;
+  const SONG_PENALTY = 250;
+  const SONG_END_MS = 5000;
   // "Facciamola finita": se più della metà dei giocatori lo preme entro questo tempo, il round finisce
   const QUIT_WINDOW_MS = 10000;
-  const PLAYING_STATES = ['countdown', 'question', 'reveal', 'wsession', 'guess', 'guessEnd', 'click', 'clickEnd', 'powerup'];
+  const PLAYING_STATES = ['countdown', 'question', 'reveal', 'wsession', 'guess', 'guessEnd', 'click', 'clickEnd', 'song', 'songEnd', 'powerup'];
   const POWERUP_SCREEN_MS = 7000;
   // Power-up del Plus (si usano durante le domande normali, prima di rispondere, uno per domanda)
   const POWERUPS = {
@@ -144,6 +152,28 @@
     return entries[entries.length - 1][0];
   }
 
+  function normTitle(t) {
+    return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+  }
+  function editDistance(a, b) {
+    const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+    for (let j = 1; j <= b.length; j++) d[0][j] = j;
+    for (let i = 1; i <= a.length; i++) {
+      for (let j = 1; j <= b.length; j++) {
+        d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
+    }
+    return d[a.length][b.length];
+  }
+  function titleMatches(text, answers) {
+    const t = normTitle(text);
+    if (!t) return false;
+    return answers.some((ans) => {
+      const a = normTitle(ans);
+      return t === a || (a.length >= 6 && editDistance(t, a) <= 1);
+    });
+  }
+
   function pointsFor(ms, time = QUESTION_TIME_MS, max = MAX_POINTS, min = MIN_POINTS) {
     const ratio = Math.min(Math.max(ms / time, 0), 1);
     return Math.round(max - (max - min) * ratio);
@@ -229,6 +259,7 @@
       this.usedQuestions = new Set(); // domande già uscite in questa stanza ("categoria:indice")
       this.usedWrong = new Set();     // domande già uscite nella sessione "La risposta sbagliata"
       this.usedGuess = new Set();     // immagini già uscite in "Indovina chi?"
+      this.usedSongs = new Set();     // canzoni già uscite in "SARABAMBA"
       this.heartbeat = setInterval(() => this.checkHeartbeats(), 2000);
     }
 
@@ -295,6 +326,8 @@
       else if (msg.t === 'guess') this.guessTry(player, msg.text);
       else if (msg.t === 'quit') this.voteQuit(player);
       else if (msg.t === 'clicks') this.clickCount(player, msg.n);
+      else if (msg.t === 'book') this.songBook(player);
+      else if (msg.t === 'songAnswer') this.songAnswer(player, msg.text);
       else if (msg.t === 'avatar') this.setAvatar(player, msg.avatar);
       else if (msg.t === 'setup') this.setSetup(player, msg.setup);
       else if (msg.t === 'boost') this.setBoost(player, msg.cat);
@@ -373,6 +406,7 @@
       clearTimeout(this.timer);
       clearInterval(this.wsInterval);
       clearInterval(this.guessInterval);
+      clearInterval(this.songInterval);
       this.timer = null;
     }
 
@@ -408,7 +442,8 @@
       };
 
       const questions = [];
-      const total = QUESTIONS_PER_PLAYER * participants.length;
+      const per = perPlayer(this.mode);
+      const total = per * participants.length;
       for (let n = 0; n < total; n++) {
         let available = Object.fromEntries(Object.entries(weights).filter(([c]) => poolFor(c).length > 0));
         if (Object.keys(available).length === 0) {
@@ -460,16 +495,27 @@
         const g = guessBank[i];
         return [{ type: 'guess', cat: g.cat, word: String(g.word).toUpperCase().replace(/[^A-Z]/g, ''), img: g.img }];
       };
-      let guessAfter = randomInt(QUESTIONS_PER_PLAYER);
+      let guessAfter = randomInt(per);
       const clickAfter = randomInt(questions.length); // "Cliccami": una volta per round
+      const songAfter = randomInt(questions.length);  // "SARABAMBA": una volta per round
+      const songBank = window.SONGS || [];
+      const songGame = () => {
+        let pool = songBank.map((_, i) => i).filter((i) => !this.usedSongs.has(i));
+        if (!pool.length) { this.usedSongs.clear(); pool = songBank.map((_, i) => i); }
+        if (!pool.length) return [];
+        const i = pool[randomInt(pool.length)];
+        this.usedSongs.add(i);
+        return [{ type: 'song', song: songBank[i] }];
+      };
       const round = [];
       let session = 0;
       questions.forEach((q, i) => {
         round.push(q);
-        if (this.mode === 'plus' && i % QUESTIONS_PER_PLAYER === guessAfter) round.push(...guessGame());
+        if (this.mode === 'plus' && i % per === guessAfter) round.push(...guessGame());
         if (this.mode === 'plus' && i === clickAfter) round.push({ type: 'click' });
-        if ((i + 1) % QUESTIONS_PER_PLAYER === 0) {
-          guessAfter = randomInt(QUESTIONS_PER_PLAYER);
+        if (this.mode === 'plus' && i === songAfter) round.push(...songGame());
+        if ((i + 1) % per === 0) {
+          guessAfter = randomInt(per);
           if (this.mode === 'plus') round.push(...wrongSession(session++));
           if (customs.length) round.push(customs.shift());
         }
@@ -558,6 +604,7 @@
       if (q.type === 'wsession') { this.startWrongSession(q); return; }
       if (q.type === 'guess') { this.startGuess(q); return; }
       if (q.type === 'click') { this.startClick(); return; }
+      if (q.type === 'song') { this.startSong(q.song); return; }
       const time = QUESTION_TIME_MS;
       for (const p of this.players.values()) {
         p.answer = null;
@@ -713,6 +760,82 @@
 
     // Fine della sessione "La risposta sbagliata": power-up a chi ha fatto più punti nella sessione
     // e a chi è ultimo nella classifica generale.
+    // ----- "SARABAMBA" -----
+    startSong(song) {
+      const now = Date.now();
+      this.song = { song, playedMs: 0, playStart: now, bookedBy: null, bookedUntil: 0, locked: new Set(), wrong: [], winnerId: null, winnerName: null, award: null };
+      this.state = 'song';
+      this.phaseEnds = null;
+      this.songInterval = setInterval(() => this.songTick(), 200);
+      this.broadcast();
+    }
+
+    songPlayed() {
+      const g = this.song;
+      return g.playedMs + (g.bookedBy ? 0 : Date.now() - g.playStart);
+    }
+
+    songTick() {
+      if (this.state !== 'song') return;
+      const g = this.song;
+      if (g.bookedBy && Date.now() > g.bookedUntil + 400) {
+        const p = this.players.get(g.bookedBy);
+        if (p) this.songWrong(p, null); // tempo scaduto
+        return;
+      }
+      if (!g.bookedBy && this.songPlayed() >= SONG_PLAY_MS) this.endSong(null);
+    }
+
+    songBook(player) {
+      if (this.state !== 'song') return;
+      const g = this.song;
+      if (g.bookedBy || g.locked.has(player.id)) return;
+      g.playedMs = this.songPlayed(); // la musica si ferma per tutti
+      g.bookedBy = player.id;
+      g.bookedUntil = Date.now() + SONG_ANSWER_MS;
+      this.broadcast();
+    }
+
+    songAnswer(player, text) {
+      if (this.state !== 'song') return;
+      const g = this.song;
+      if (g.bookedBy !== player.id || Date.now() > g.bookedUntil + 600) return;
+      if (titleMatches(text, g.song.answers)) this.endSong(player);
+      else this.songWrong(player, String(text || '').slice(0, 60));
+    }
+
+    // risposta sbagliata o tempo scaduto: -250 punti, niente più tentativi, la musica riparte
+    songWrong(player, text) {
+      const g = this.song;
+      player.score = Math.max(0, player.score - SONG_PENALTY);
+      g.locked.add(player.id);
+      g.wrong.push({ name: player.name, text });
+      g.bookedBy = null;
+      g.playStart = Date.now();
+      if (this.online().every((p) => g.locked.has(p.id))) { this.endSong(null); return; }
+      this.broadcast();
+    }
+
+    endSong(winner) {
+      if (this.state !== 'song') return;
+      this.clearTimer();
+      const g = this.song;
+      if (winner) {
+        const type = Object.keys(POWERUPS)[randomInt(Object.keys(POWERUPS).length)];
+        winner.score += SONG_POINTS;
+        winner.powerups = winner.powerups || [];
+        winner.powerups.push(type);
+        g.winnerId = winner.id;
+        g.winnerName = winner.name;
+        g.award = type;
+      }
+      g.bookedBy = null;
+      this.state = 'songEnd';
+      this.phaseEnds = Date.now() + SONG_END_MS;
+      this.timer = setTimeout(() => this.nextQuestion(), SONG_END_MS);
+      this.broadcast();
+    }
+
     // ----- "Cliccami" -----
     startClick() {
       const now = Date.now();
@@ -939,6 +1062,8 @@
         total: this.questions.filter((q) => !SPECIAL_TYPES.includes(q.type)).length,
         qNumber: this.questions.slice(0, this.qIndex + 1).filter((q) => !SPECIAL_TYPES.includes(q.type)).length,
         clickCount: this.questions.filter((q) => q.type === 'click').length,
+        songCount: this.questions.filter((q) => q.type === 'song').length,
+        blockSize: perPlayer(this.mode),
         guessCount: this.questions.filter((q) => q.type === 'guess').length,
         bonusCount: this.questions.filter((q) => q.authorId).length,
         roundBoost: this.roundBoost,
@@ -958,6 +1083,19 @@
         award: this.state === 'powerup' ? this.award : null,
         players,
       };
+      if ((this.state === 'song' || this.state === 'songEnd') && this.song) {
+        const g = this.song;
+        const ended = this.state === 'songEnd';
+        const booked = g.bookedBy ? this.players.get(g.bookedBy) : null;
+        view.song = {
+          bpm: g.song.bpm, notes: g.song.notes, ended, playing: !ended && !booked,
+          offsetMs: ended ? 0 : this.songPlayed(), maxMs: SONG_PLAY_MS,
+          bookedName: booked ? booked.name : null, bookedIsYou: !!booked && booked.id === player.id,
+          bookLeftMs: booked ? Math.max(0, g.bookedUntil - Date.now()) : 0, answerMs: SONG_ANSWER_MS,
+          locked: g.locked.has(player.id), wrong: g.wrong, penalty: SONG_PENALTY, points: SONG_POINTS,
+          title: ended ? g.song.title : null, winnerName: g.winnerName, winnerIsYou: g.winnerId === player.id, award: g.award,
+        };
+      }
       if ((this.state === 'click' || this.state === 'clickEnd') && this.click) {
         const c = this.click;
         const now = Date.now();
@@ -1242,6 +1380,8 @@
       else if (msg.t === 'guess') hostGame.guessTry(me, msg.text);
       else if (msg.t === 'quit') hostGame.voteQuit(me);
       else if (msg.t === 'clicks') hostGame.clickCount(me, msg.n);
+      else if (msg.t === 'book') hostGame.songBook(me);
+      else if (msg.t === 'songAnswer') hostGame.songAnswer(me, msg.text);
     } else {
       sendToHost(msg);
     }
@@ -1266,7 +1406,7 @@
 
   // ---------- UI helper ----------
   function show(id) {
-    for (const s of ['home', 'lobby', 'countdown', 'game', 'wsession', 'guess', 'click', 'powerup', 'final']) $(s).classList.toggle('hidden', s !== id);
+    for (const s of ['home', 'lobby', 'countdown', 'game', 'wsession', 'guess', 'click', 'song', 'powerup', 'final']) $(s).classList.toggle('hidden', s !== id);
   }
   function setBusy(busy, text) {
     $('createBtn').disabled = busy;
@@ -1316,12 +1456,14 @@
     if (s.state === 'final' && !prevKey.startsWith('final')) clearSetupForm(); // nuovo round, nuova domanda
     if (s.state !== 'final') celebrated = false;
     renderQuit();
+    if (s.state !== 'song') stopMusic();
     if (s.state === 'lobby') renderLobby();
     else if (s.state === 'countdown') renderCountdown();
     else if (s.state === 'question' || s.state === 'reveal') renderGame();
     else if (s.state === 'wsession') renderWrongSession();
     else if (s.state === 'guess' || s.state === 'guessEnd') renderGuess();
     else if (s.state === 'click' || s.state === 'clickEnd') renderClick();
+    else if (s.state === 'song' || s.state === 'songEnd') renderSong();
     else if (s.state === 'powerup') renderPowerup();
     else if (s.state === 'final') renderFinal();
   }
@@ -1369,10 +1511,11 @@
     $('roundInfo').innerHTML = `<div>Round da <b>${regular}</b> domande${view.bonusCount
       ? ` + <b>${view.bonusCount}</b> ${view.mode === 'plus'
         ? (view.bonusCount === 1 ? 'domanda o disegno di un giocatore' : 'domande o disegni dei giocatori')
-        : (view.bonusCount === 1 ? 'domanda scritta da un giocatore' : 'domande scritte dai giocatori')}, una ogni ${QUESTIONS_PER_PLAYER}!` : ''}</div>
+        : (view.bonusCount === 1 ? 'domanda scritta da un giocatore' : 'domande scritte dai giocatori')}, una ogni ${view.blockSize}!` : ''}</div>
       ${view.clickCount ? `<div>🔴 E da qualche parte c'è <b>Cliccami</b>: vince chi preme di più il bottone rosso in 5 secondi!</div>` : ''}
       ${view.guessCount ? `<div>🕵️ In ogni blocco c'è anche un <b>Indovina chi?</b> a sorpresa: chi indovina vince ${GUESS_POINTS} punti e un power-up!</div>` : ''}
-      ${view.wrongCount ? `<div>🙃 Dopo ogni ${QUESTIONS_PER_PLAYER} domande c'è <b>La risposta sbagliata</b>: chi la vince riceve un power-up!</div>` : ''}
+      ${view.songCount ? `<div>🎵 E arriverà anche <b>SARABAMBA</b>: prenotati e indovina il titolo della canzone!</div>` : ''}
+      ${view.wrongCount ? `<div>🙃 Dopo ogni ${view.blockSize} domande c'è <b>La risposta sbagliata</b>: chi la vince riceve un power-up!</div>` : ''}
       ${boost ? `<div class="cat-mix"><span class="chip on">🎯 Categoria favorita: ${info.emoji} ${esc(info.label)}${boost.by ? ' · scelta da ' + esc(boost.by) : ''}</span></div>` : ''}`;
   }
 
@@ -1535,6 +1678,147 @@
     for (const b of $('wsAnswers').querySelectorAll('.answer')) b.disabled = true;
     sendAction({ t: 'wanswer', idx: view.ws.step, choice: Number(btn.dataset.i), ms: performance.now() - wsShownAt });
   });
+
+  // ---------- audio: le melodie si suonano nel browser, nota per nota ----------
+  let audioCtx = null;
+  let music = null; // { gain, oscs } della melodia in riproduzione
+  function unlockAudio() {
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    } catch {}
+  }
+  // i browser permettono l'audio solo dopo un gesto dell'utente: lo sblocchiamo al primo tocco
+  document.addEventListener('pointerdown', unlockAudio, { capture: true });
+  document.addEventListener('keydown', unlockAudio, { capture: true });
+
+  const NOTE_INDEX = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+  function noteFreq(name) {
+    const m = /^([A-G])(#|b)?(\d)$/.exec(name);
+    if (!m) return null;
+    const semis = NOTE_INDEX[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0) + (Number(m[3]) + 1) * 12;
+    return 440 * Math.pow(2, (semis - 69) / 12);
+  }
+  function parseSong(song) {
+    const beat = 60 / song.bpm;
+    let t = 0;
+    const notes = song.notes.split(/\s+/).map((tok) => {
+      const [n, d] = tok.split(':');
+      const dur = Number(d) * beat;
+      const out = { f: n === 'R' ? null : noteFreq(n), start: t, dur };
+      t += dur;
+      return out;
+    });
+    return { notes, length: t + beat }; // una piccola pausa prima di ricominciare
+  }
+  function stopMusic() {
+    if (!music) return;
+    try {
+      music.gain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.03);
+      for (const o of music.oscs) o.stop(audioCtx.currentTime + 0.2);
+    } catch {}
+    music = null;
+  }
+  // suona la melodia (in loop) partendo da offsetSec, per al massimo maxSec
+  function playMusic(song, offsetSec, maxSec) {
+    stopMusic();
+    if (!audioCtx) return;
+    const { notes, length } = parseSong(song);
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0.32;
+    gain.connect(audioCtx.destination);
+    const oscs = [];
+    const now = audioCtx.currentTime + 0.05;
+    const until = Math.max(0, maxSec - offsetSec);
+    for (let loop = Math.floor(offsetSec / length); loop * length < offsetSec + until; loop++) {
+      for (const n of notes) {
+        const at = loop * length + n.start - offsetSec;
+        if (!n.f || at < 0 || at > until) continue;
+        const o = audioCtx.createOscillator();
+        const env = audioCtx.createGain();
+        o.type = 'triangle';
+        o.frequency.value = n.f;
+        env.gain.setValueAtTime(0, now + at);
+        env.gain.linearRampToValueAtTime(1, now + at + 0.02);
+        env.gain.exponentialRampToValueAtTime(0.001, now + at + Math.max(0.12, n.dur * 0.95));
+        o.connect(env).connect(gain);
+        o.start(now + at);
+        o.stop(now + at + n.dur + 0.05);
+        oscs.push(o);
+      }
+    }
+    music = { gain, oscs };
+  }
+
+  // ---------- "SARABAMBA" ----------
+  let songKey = '';
+  let songPlayingKey = '';
+  let bookDeadline = 0;
+  function renderSong() {
+    show('song');
+    renderedKey = '';
+    const g = view.song;
+    if (!g) return;
+    const key = `${view.qIndex}`;
+    if (key !== songKey) {
+      songKey = key;
+      songPlayingKey = '';
+      $('songAnswer').value = '';
+      $('songResult').classList.add('hidden');
+    }
+    // la musica suona per tutti finché nessuno è prenotato; riparte dallo stesso punto
+    const playKey = `${key}:${g.playing}:${g.wrong.length}`;
+    if (g.playing && playKey !== songPlayingKey) {
+      songPlayingKey = playKey;
+      unlockAudio();
+      playMusic(g, g.offsetMs / 1000, g.maxMs / 1000);
+    } else if (!g.playing) {
+      songPlayingKey = playKey;
+      stopMusic();
+    }
+    $('songWave').classList.toggle('on', g.playing);
+    const canBook = !g.ended && g.playing && !g.locked;
+    $('bookBtn').disabled = !canBook;
+    $('bookBtn').classList.toggle('hidden', g.bookedIsYou || g.ended);
+    $('songAnswerBox').classList.toggle('hidden', !g.bookedIsYou);
+    bookDeadline = g.bookedName ? performance.now() + g.bookLeftMs : 0;
+    if (g.bookedIsYou && document.activeElement !== $('songAnswer')) $('songAnswer').focus();
+    $('songWrong').innerHTML = g.wrong.map((w) => `❌ ${esc(w.name)}: ${w.text ? `"${esc(w.text)}"` : 'tempo scaduto'} (−${g.penalty})`).join('<br>');
+    updateSongStatus();
+    if (g.ended) {
+      stopMusic();
+      $('songResult').classList.remove('hidden');
+      const pw = g.award ? POWERUPS[g.award].label : '';
+      $('songResult').className = `banner ${g.winnerIsYou ? 'good' : 'bad'}`;
+      $('songResult').textContent = g.winnerIsYou ? `🎉 Esatto, era "${g.title}"! +${g.points} punti e il power-up ${pw}`
+        : g.winnerName ? `${g.winnerName} ha indovinato "${g.title}": +${g.points} punti e il power-up ${pw}`
+          : `Nessuno ha indovinato: era "${g.title}"`;
+    }
+  }
+  function updateSongStatus() {
+    const g = view && view.song;
+    if (!g) return;
+    const left = Math.max(0, Math.ceil((bookDeadline - performance.now()) / 1000));
+    $('songStatus').textContent = g.ended ? ''
+      : g.bookedIsYou ? `Scrivi il titolo! ${left}s`
+        : g.bookedName ? `⏸ ${g.bookedName} si è prenotato… ${left}s`
+          : g.locked ? 'Hai sbagliato: non puoi più rispondere a questa canzone'
+            : '🎶 Ascolta e prenotati appena la riconosci!';
+  }
+  $('bookBtn').onclick = () => {
+    unlockAudio();
+    if (!view || !view.song || $('bookBtn').disabled) return;
+    $('bookBtn').disabled = true;
+    sendAction({ t: 'book' });
+  };
+  function sendSongAnswer() {
+    const text = $('songAnswer').value.trim();
+    if (!text || !view || !view.song || !view.song.bookedIsYou) return;
+    sendAction({ t: 'songAnswer', text });
+    $('songAnswer').value = '';
+  }
+  $('songSendBtn').onclick = sendSongAnswer;
+  $('songAnswer').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendSongAnswer(); } });
 
   // ---------- "Cliccami" ----------
   let clickKey = '';
@@ -1798,6 +2082,7 @@
   function tick() {
     if (view && view.quit && view.quit.votes) updateQuitInfo();
     if (view && view.state === 'click') updateClick();
+    if (view && view.state === 'song') updateSongStatus();
     if (view && deadline != null) {
       const left = Math.max(0, deadline - performance.now());
       if (view.state === 'question') {
