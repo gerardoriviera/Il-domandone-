@@ -1468,6 +1468,23 @@
     else if (s.state === 'final') renderFinal();
   }
 
+  // QR code con il link della stanza: chi lo inquadra entra con il codice già inserito
+  let qrLink = '';
+  function renderQr(link) {
+    if (link === qrLink) return;
+    qrLink = link;
+    const box = $('qrCode');
+    try {
+      const qr = qrcode(0, 'M');
+      qr.addData(link);
+      qr.make();
+      box.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+      $('qrBox').classList.remove('hidden');
+    } catch {
+      $('qrBox').classList.add('hidden'); // senza QR resta comunque il link da copiare
+    }
+  }
+
   function renderLobby() {
     show('lobby');
     renderedKey = '';
@@ -1479,7 +1496,9 @@
     $('kindTabs').classList.toggle('hidden', !plus);
     $('legendBtn').classList.toggle('hidden', !plus);
     if (!plus && draft.custom.kind === 'drawing') setKind('question');
-    $('shareLink').value = `${location.origin}${location.pathname}?room=${view.room}`;
+    const link = `${location.origin}${location.pathname}?room=${view.room}`;
+    $('shareLink').value = link;
+    renderQr(link);
     $('playerCount').textContent = `(${view.players.length}/${view.maxPlayers})`;
     $('lobbyPlayers').innerHTML = view.players.map((p) => `
       <div class="player ${p.connected ? '' : 'offline'}">

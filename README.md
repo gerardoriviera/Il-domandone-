@@ -7,7 +7,7 @@ Le domande sono divise in **10 categorie**: geografia e viaggi, storia, scienza 
 ## Come si gioca
 
 1. Ognuno sceglie un nickname e un'**immagine** tra 9 personaggi (frutta e verdura). Ogni giocatore ha un'immagine diversa: in lobby quelle già prese sono in grigio e si può cambiare la propria.
-2. Un giocatore crea una stanza e riceve un **codice di 4 lettere** (o un link da condividere). Gli altri entrano con il codice e si ritrovano nella **lobby**.
+2. Un giocatore crea una stanza e riceve un **codice di 4 lettere** (o un link da condividere). Gli altri entrano con il codice, con il link o **inquadrando il QR code** che compare in lobby (sia nel Classico sia nel Plus): il QR apre il gioco con il codice della stanza già inserito, basta scrivere il nome e premere Entra. Tutti si ritrovano nella **lobby**.
 3. In lobby ogni giocatore **scrive una sua domanda** con 4 risposte, di cui una sola giusta, poi preme "Sono pronto!". Chi non ha idee può premere **"Genera"**: i campi si riempiono con una domanda già pronta, che si può modificare.
 4. L'host avvia la partita. Un round ha **5 domande per ogni giocatore** (es. 3 giocatori = 15 domande), estratte a caso tra le 10 categorie. Ogni domanda ha sempre **4 risposte**, una sola giusta. Attenzione: a volte le risposte sbagliate sono molto simili a quella giusta (es. *Canberra* / *Camberra*), per ingannare chi non legge bene!
 5. Hai 20 secondi per rispondere. Se rispondi giusto guadagni da **750 punti** (risposta istantanea) a **500 punti** (all'ultimo secondo): **più sei veloce, più punti fai**. Una risposta sbagliata vale 0.
@@ -112,6 +112,7 @@ Apri `http://localhost:3000`. Serve comunque una connessione a Internet per ragg
 | `public/questions.js` | Le 10 categorie, la banca domande (2148 domande, oltre 200 per categoria) e le 100 domande della sessione "La risposta sbagliata". |
 | `public/avatars/` | Le 9 immagini dei giocatori. |
 | `public/vendor/mqtt.min.js` | Libreria MQTT.js 5.16.1 (licenza MIT). |
+| `public/vendor/qrcode.js` | Libreria qrcode-generator 1.5.2 di Kazuhiko Arase (licenza MIT), per il QR code della stanza. |
 | `server.js` | Piccolo server di file statici per provare il gioco in locale. |
 | `netlify.toml` | Configurazione per Netlify. |
 | `wrangler.jsonc` | Configurazione per Cloudflare. |
