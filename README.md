@@ -25,6 +25,10 @@ Nella schermata iniziale si può creare una stanza **Classico** o una stanza **P
 - l'autore di un **disegno** guadagna **250 punti per ogni giocatore che indovina**;
 - chi indovina una domanda o un disegno di un giocatore prende **200 punti bonus**, oltre ai punti per la velocità.
 
+### Cliccami 🔴
+
+Una volta per round, in una posizione a caso, compare un grande **bottone rosso**: dopo un conto alla rovescia di 3 secondi, chi lo preme più volte in **5 secondi** vince **750 punti** (come una risposta corretta data subito) e un **power-up**, che si aggiunge a quelli che ha già. Tutti vedono dal vivo i clic degli altri.
+
 ### Indovina chi? 🕵️
 
 In ogni blocco del Plus (5 domande, La risposta sbagliata, domanda del giocatore) compare una volta, in una posizione a caso, il gioco **Indovina chi?**. Un'immagine quadrata parte tutta nera ed è divisa in 16 tessere che si scoprono man mano (45 secondi in tutto). Sotto ci sono le caselle per le lettere della parola da indovinare: le lettere giuste al posto giusto restano bloccate **solo per chi le ha trovate**, e da metà tempo iniziano a comparire lettere per tutti. Il primo che indovina la parola vince **1500 punti** (come due risposte corrette) e un **power-up** a caso, che si aggiunge a quelli che ha già.

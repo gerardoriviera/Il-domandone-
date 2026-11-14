@@ -158,6 +158,12 @@
   .award { display: flex; gap: 12px; align-items: center; padding: 10px; border-radius: 12px; background: #0003; }
   .award .avatar { width: 54px; height: 54px; }
   .legend-row { display: flex; gap: 10px; align-items: center; }
+  .click-btn { width: min(62vw, 240px); aspect-ratio: 1; border-radius: 50%; margin: 24px auto; font-size: 1.4rem; font-weight: 900; color: #fff;
+    background: radial-gradient(circle at 35% 30%, #ff8a8a, #e8273b 55%, #9b0f20); box-shadow: 0 10px 0 #7a0a18, 0 18px 30px #0008; user-select: none; touch-action: manipulation; }
+  .click-btn:disabled { filter: grayscale(.6); opacity: .6; }
+  .click-btn:active:not(:disabled) { transform: translateY(6px); box-shadow: 0 4px 0 #7a0a18, 0 8px 16px #0008; }
+  .click-btn.pop { animation: clickpop .12s ease-out; }
+  @keyframes clickpop { from { transform: scale(.93); } to { transform: scale(1); } }
   .quit-bar { margin-top: 28px; padding-top: 16px; border-top: 1px solid #ffffff14; text-align: center; }
   .quit-bar button { font-size: .95rem; padding: 10px 18px; }
   .quit-bar button.voting { background: color-mix(in srgb, var(--bad) 30%, transparent); color: var(--text); }
@@ -253,7 +259,7 @@
       <button id="legendBtn" type="button" class="ghost small hidden">⚡ Power-up: legenda</button>
       <div class="legend-box stack hidden" id="legend">
         <h3>⚡ Power-up</h3>
-        <div class="muted hint">Nel Plus, dopo ogni 5 domande arriva <b>La risposta sbagliata</b>: 3 domande lampo (5 secondi) con 2 risposte, e fa punti chi sceglie quella <b>sbagliata</b>. Ognuno va al proprio ritmo: appena rispondi passi alla successiva, e chi finisce per primo prende 100 punti bonus. Chi vince la sessione riceve un power-up a caso; chi è ultimo in classifica riceve 50/50 o x2. In ogni blocco c'è anche un <b>Indovina chi?</b>: chi indovina per primo la parola vince 1500 punti e un power-up. I power-up si usano durante le domande normali, prima di rispondere, uno per domanda; quelli non usati restano anche per il round successivo.</div>
+        <div class="muted hint">Nel Plus, dopo ogni 5 domande arriva <b>La risposta sbagliata</b>: 3 domande lampo (5 secondi) con 2 risposte, e fa punti chi sceglie quella <b>sbagliata</b>. Ognuno va al proprio ritmo: appena rispondi passi alla successiva, e chi finisce per primo prende 100 punti bonus. Chi vince la sessione riceve un power-up a caso; chi è ultimo in classifica riceve 50/50 o x2. Una volta per round c'è <b>Cliccami</b>: chi preme più volte il bottone rosso in 5 secondi vince 750 punti e un power-up. In ogni blocco c'è anche un <b>Indovina chi?</b>: chi indovina per primo la parola vince 1500 punti e un power-up. I power-up si usano durante le domande normali, prima di rispondere, uno per domanda; quelli non usati restano anche per il round successivo.</div>
         <div id="legendList" class="stack"></div>
       </div>
       <div class="muted">Codice stanza</div>
@@ -382,6 +388,18 @@
     <div class="g-feedback" id="gFeedback"></div>
     <div id="gResult" class="banner hidden"></div>
     <div class="muted center hint">Le lettere giuste al posto giusto restano solo per te. Da metà tempo compaiono lettere per tutti. Chi indovina per primo vince punti e un power-up!</div>
+  </section>
+
+  <!-- "CLICCAMI": chi preme di più il bottone rosso in 5 secondi -->
+  <section id="click" class="hidden">
+    <div class="topbar"><div>🔴 Cliccami!</div><div id="clickState">Preparati…</div><div>Clic: <b id="clickCount">0</b></div></div>
+    <div class="center muted">Premi il bottone rosso più volte che puoi in 5 secondi!</div>
+    <div class="center"><button id="clickBtn" type="button" class="click-btn" disabled>CLICCAMI</button></div>
+    <div id="clickResult" class="banner hidden"></div>
+    <div class="card stack" style="margin-top:16px">
+      <h3>Clic di tutti</h3>
+      <div id="clickBoard" class="stack"></div>
+    </div>
   </section>
 
   <!-- POWER-UP: fine della sessione "La risposta sbagliata" -->

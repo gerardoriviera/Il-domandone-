@@ -29,9 +29,15 @@
   const GUESS_TILES = 16;           // immagine divisa in 4x4 tessere
   const GUESS_END_MS = 5000;
   const GUESS_POINTS = 2 * 750;     // come due risposte corrette date subito
+  // Plus: "Cliccami" — vince chi preme più volte il bottone rosso in 5 secondi
+  const CLICK_READY_MS = 3000;
+  const CLICK_TIME_MS = 5000;
+  const CLICK_END_MS = 5000;
+  const CLICK_POINTS = 750;         // come una risposta corretta data subito
+  const SPECIAL_TYPES = ['wsession', 'guess', 'click']; // non contano come domande numerate
   // "Facciamola finita": se più della metà dei giocatori lo preme entro questo tempo, il round finisce
   const QUIT_WINDOW_MS = 10000;
-  const PLAYING_STATES = ['countdown', 'question', 'reveal', 'wsession', 'guess', 'guessEnd', 'powerup'];
+  const PLAYING_STATES = ['countdown', 'question', 'reveal', 'wsession', 'guess', 'guessEnd', 'click', 'clickEnd', 'powerup'];
   const POWERUP_SCREEN_MS = 7000;
   // Power-up del Plus (si usano durante le domande normali, prima di rispondere, uno per domanda)
   const POWERUPS = {
@@ -288,6 +294,7 @@
       else if (msg.t === 'wanswer') this.wsAnswer(player, msg.idx, msg.choice, msg.ms);
       else if (msg.t === 'guess') this.guessTry(player, msg.text);
       else if (msg.t === 'quit') this.voteQuit(player);
+      else if (msg.t === 'clicks') this.clickCount(player, msg.n);
       else if (msg.t === 'avatar') this.setAvatar(player, msg.avatar);
       else if (msg.t === 'setup') this.setSetup(player, msg.setup);
       else if (msg.t === 'boost') this.setBoost(player, msg.cat);
@@ -454,11 +461,13 @@
         return [{ type: 'guess', cat: g.cat, word: String(g.word).toUpperCase().replace(/[^A-Z]/g, ''), img: g.img }];
       };
       let guessAfter = randomInt(QUESTIONS_PER_PLAYER);
+      const clickAfter = randomInt(questions.length); // "Cliccami": una volta per round
       const round = [];
       let session = 0;
       questions.forEach((q, i) => {
         round.push(q);
         if (this.mode === 'plus' && i % QUESTIONS_PER_PLAYER === guessAfter) round.push(...guessGame());
+        if (this.mode === 'plus' && i === clickAfter) round.push({ type: 'click' });
         if ((i + 1) % QUESTIONS_PER_PLAYER === 0) {
           guessAfter = randomInt(QUESTIONS_PER_PLAYER);
           if (this.mode === 'plus') round.push(...wrongSession(session++));
@@ -548,6 +557,7 @@
       const q = this.questions[this.qIndex];
       if (q.type === 'wsession') { this.startWrongSession(q); return; }
       if (q.type === 'guess') { this.startGuess(q); return; }
+      if (q.type === 'click') { this.startClick(); return; }
       const time = QUESTION_TIME_MS;
       for (const p of this.players.values()) {
         p.answer = null;
@@ -703,6 +713,50 @@
 
     // Fine della sessione "La risposta sbagliata": power-up a chi ha fatto più punti nella sessione
     // e a chi è ultimo nella classifica generale.
+    // ----- "Cliccami" -----
+    startClick() {
+      const now = Date.now();
+      this.click = { goAt: now + CLICK_READY_MS, endAt: now + CLICK_READY_MS + CLICK_TIME_MS, counts: new Map(), winnerId: null, winnerName: null, award: null, best: 0 };
+      this.state = 'click';
+      this.phaseEnds = this.click.endAt;
+      this.timer = setTimeout(() => this.endClick(), CLICK_READY_MS + CLICK_TIME_MS + 700); // margine per gli ultimi conteggi
+      this.broadcast();
+    }
+
+    // ogni giocatore manda il proprio conteggio più volte al secondo
+    clickCount(player, n) {
+      if (this.state !== 'click' || !this.click) return;
+      const now = Date.now();
+      if (now < this.click.goAt || now > this.click.endAt + 700) return;
+      n = Math.max(0, Math.min(200, Math.floor(Number(n) || 0))); // più di 40 clic al secondo non è umano
+      if (n <= (this.click.counts.get(player.id) || 0)) return;
+      this.click.counts.set(player.id, n);
+      this.broadcast();
+    }
+
+    endClick() {
+      if (this.state !== 'click') return;
+      this.clearTimer();
+      const c = this.click;
+      const best = Math.max(0, ...c.counts.values());
+      const top = this.online().filter((p) => best > 0 && (c.counts.get(p.id) || 0) === best);
+      if (top.length) {
+        const winner = top[randomInt(top.length)];
+        const type = Object.keys(POWERUPS)[randomInt(Object.keys(POWERUPS).length)];
+        winner.score += CLICK_POINTS;
+        winner.powerups = winner.powerups || [];
+        winner.powerups.push(type); // si aggiunge a quelli che ha già
+        c.winnerId = winner.id;
+        c.winnerName = winner.name;
+        c.award = type;
+        c.best = best;
+      }
+      this.state = 'clickEnd';
+      this.phaseEnds = Date.now() + CLICK_END_MS;
+      this.timer = setTimeout(() => this.nextQuestion(), CLICK_END_MS);
+      this.broadcast();
+    }
+
     // ----- "Indovina chi?" -----
     startGuess(item) {
       const now = Date.now();
@@ -882,8 +936,9 @@
         you: player.id,
         hostId: this.hostId,
         maxPlayers: MAX_PLAYERS,
-        total: this.questions.filter((q) => q.type !== 'wsession' && q.type !== 'guess').length,
-        qNumber: this.questions.slice(0, this.qIndex + 1).filter((q) => q.type !== 'wsession' && q.type !== 'guess').length,
+        total: this.questions.filter((q) => !SPECIAL_TYPES.includes(q.type)).length,
+        qNumber: this.questions.slice(0, this.qIndex + 1).filter((q) => !SPECIAL_TYPES.includes(q.type)).length,
+        clickCount: this.questions.filter((q) => q.type === 'click').length,
         guessCount: this.questions.filter((q) => q.type === 'guess').length,
         bonusCount: this.questions.filter((q) => q.authorId).length,
         roundBoost: this.roundBoost,
@@ -903,6 +958,16 @@
         award: this.state === 'powerup' ? this.award : null,
         players,
       };
+      if ((this.state === 'click' || this.state === 'clickEnd') && this.click) {
+        const c = this.click;
+        const now = Date.now();
+        view.click = {
+          ended: this.state === 'clickEnd', goInMs: Math.max(0, c.goAt - now), leftMs: Math.max(0, c.endAt - now),
+          time: CLICK_TIME_MS, mine: c.counts.get(player.id) || 0,
+          board: this.online().map((p) => ({ id: p.id, name: p.name, avatar: p.avatar, n: c.counts.get(p.id) || 0 })).sort((a, b) => b.n - a.n),
+          winnerName: c.winnerName, winnerIsYou: c.winnerId === player.id, award: c.award, points: CLICK_POINTS, best: c.best,
+        };
+      }
       if ((this.state === 'guess' || this.state === 'guessEnd') && this.guess) {
         const g = this.guess;
         const word = g.item.word;
@@ -1176,6 +1241,7 @@
       else if (msg.t === 'wanswer') hostGame.wsAnswer(me, msg.idx, msg.choice, msg.ms);
       else if (msg.t === 'guess') hostGame.guessTry(me, msg.text);
       else if (msg.t === 'quit') hostGame.voteQuit(me);
+      else if (msg.t === 'clicks') hostGame.clickCount(me, msg.n);
     } else {
       sendToHost(msg);
     }
@@ -1200,7 +1266,7 @@
 
   // ---------- UI helper ----------
   function show(id) {
-    for (const s of ['home', 'lobby', 'countdown', 'game', 'wsession', 'guess', 'powerup', 'final']) $(s).classList.toggle('hidden', s !== id);
+    for (const s of ['home', 'lobby', 'countdown', 'game', 'wsession', 'guess', 'click', 'powerup', 'final']) $(s).classList.toggle('hidden', s !== id);
   }
   function setBusy(busy, text) {
     $('createBtn').disabled = busy;
@@ -1255,6 +1321,7 @@
     else if (s.state === 'question' || s.state === 'reveal') renderGame();
     else if (s.state === 'wsession') renderWrongSession();
     else if (s.state === 'guess' || s.state === 'guessEnd') renderGuess();
+    else if (s.state === 'click' || s.state === 'clickEnd') renderClick();
     else if (s.state === 'powerup') renderPowerup();
     else if (s.state === 'final') renderFinal();
   }
@@ -1303,6 +1370,7 @@
       ? ` + <b>${view.bonusCount}</b> ${view.mode === 'plus'
         ? (view.bonusCount === 1 ? 'domanda o disegno di un giocatore' : 'domande o disegni dei giocatori')
         : (view.bonusCount === 1 ? 'domanda scritta da un giocatore' : 'domande scritte dai giocatori')}, una ogni ${QUESTIONS_PER_PLAYER}!` : ''}</div>
+      ${view.clickCount ? `<div>🔴 E da qualche parte c'è <b>Cliccami</b>: vince chi preme di più il bottone rosso in 5 secondi!</div>` : ''}
       ${view.guessCount ? `<div>🕵️ In ogni blocco c'è anche un <b>Indovina chi?</b> a sorpresa: chi indovina vince ${GUESS_POINTS} punti e un power-up!</div>` : ''}
       ${view.wrongCount ? `<div>🙃 Dopo ogni ${QUESTIONS_PER_PLAYER} domande c'è <b>La risposta sbagliata</b>: chi la vince riceve un power-up!</div>` : ''}
       ${boost ? `<div class="cat-mix"><span class="chip on">🎯 Categoria favorita: ${info.emoji} ${esc(info.label)}${boost.by ? ' · scelta da ' + esc(boost.by) : ''}</span></div>` : ''}`;
@@ -1466,6 +1534,72 @@
     if (deadline != null && performance.now() > deadline) return;
     for (const b of $('wsAnswers').querySelectorAll('.answer')) b.disabled = true;
     sendAction({ t: 'wanswer', idx: view.ws.step, choice: Number(btn.dataset.i), ms: performance.now() - wsShownAt });
+  });
+
+  // ---------- "Cliccami" ----------
+  let clickKey = '';
+  let clickGoAt = 0;   // performance.now() del "VIA!"
+  let clickEndAt = 0;
+  let myClicks = 0;
+  let sentClicks = 0;
+  let clickSender = null;
+  function renderClick() {
+    show('click');
+    renderedKey = '';
+    const c = view.click;
+    if (!c) return;
+    const key = `${view.qIndex}`;
+    if (key !== clickKey) {
+      clickKey = key;
+      myClicks = 0;
+      sentClicks = 0;
+      $('clickResult').classList.add('hidden');
+      clearInterval(clickSender);
+      // manda il conteggio più volte al secondo, e un'ultima volta alla fine
+      clickSender = setInterval(() => {
+        if (myClicks > sentClicks) { sentClicks = myClicks; sendAction({ t: 'clicks', n: myClicks }); }
+        if (performance.now() > clickEndAt + 1500) clearInterval(clickSender);
+      }, 200);
+    }
+    if (!c.ended) {
+      clickGoAt = performance.now() + c.goInMs;
+      clickEndAt = performance.now() + c.leftMs;
+    }
+    $('clickBoard').innerHTML = c.board.map((p) => `<div class="ws-row">${avatar(p, 'small')}<span class="name">${esc(p.name)}</span><span class="dots">${p.n}</span></div>`).join('');
+    if (c.ended) {
+      $('clickBtn').disabled = true;
+      $('clickState').textContent = 'Tempo scaduto!';
+      $('clickResult').classList.remove('hidden');
+      const pw = c.award ? POWERUPS[c.award].label : '';
+      $('clickResult').className = `banner ${c.winnerIsYou ? 'good' : 'bad'}`;
+      $('clickResult').textContent = c.winnerIsYou ? `🎉 Hai vinto con ${c.best} clic! +${c.points} punti e il power-up ${pw}`
+        : c.winnerName ? `${c.winnerName} vince con ${c.best} clic: +${c.points} punti e il power-up ${pw}` : 'Nessuno ha cliccato!';
+    }
+  }
+  function updateClick() {
+    const c = view && view.click;
+    if (!c || c.ended) return;
+    const now = performance.now();
+    const btn = $('clickBtn');
+    if (now < clickGoAt) {
+      btn.disabled = true;
+      $('clickState').textContent = `Preparati… ${Math.ceil((clickGoAt - now) / 1000)}`;
+    } else if (now < clickEndAt) {
+      btn.disabled = false;
+      $('clickState').textContent = `VIA! ${Math.ceil((clickEndAt - now) / 1000)}s`;
+    } else {
+      btn.disabled = true;
+      $('clickState').textContent = 'Tempo scaduto!';
+    }
+    $('clickCount').textContent = myClicks;
+  }
+  $('clickBtn').addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    const now = performance.now();
+    if (!view || !view.click || view.click.ended || now < clickGoAt || now > clickEndAt) return;
+    myClicks++;
+    $('clickCount').textContent = myClicks;
+    $('clickBtn').classList.remove('pop'); void $('clickBtn').offsetWidth; $('clickBtn').classList.add('pop');
   });
 
   // ---------- "Indovina chi?" ----------
@@ -1663,6 +1797,7 @@
   // timer animato
   function tick() {
     if (view && view.quit && view.quit.votes) updateQuitInfo();
+    if (view && view.state === 'click') updateClick();
     if (view && deadline != null) {
       const left = Math.max(0, deadline - performance.now());
       if (view.state === 'question') {
