@@ -28,7 +28,7 @@ Nella schermata iniziale si può creare una stanza **Classico** o una stanza **P
 
 In ogni blocco del Plus (5 domande, La risposta sbagliata, domanda del giocatore) compare una volta, in una posizione a caso, il gioco **Indovina chi?**. Un'immagine quadrata parte tutta nera ed è divisa in 16 tessere che si scoprono man mano (45 secondi in tutto). Sotto ci sono le caselle per le lettere della parola da indovinare: le lettere giuste al posto giusto restano bloccate **solo per chi le ha trovate**, e da metà tempo iniziano a comparire lettere per tutti. Il primo che indovina la parola vince **1500 punti** (come due risposte corrette) e un **power-up** a caso, che si aggiunge a quelli che ha già.
 
-Le immagini sono in `public/indovina/` e si elencano, con la parola da indovinare, in `window.GUESS_IMAGES` dentro `public/questions.js`: per aggiungerne una basta mettere il file nella cartella e una riga nella lista.
+Le immagini (generate con Nano Banana, ognuna è un indovinello su qualcosa di reale: un monumento, un personaggio storico, un animale, un oggetto…) sono in `public/indovina/` e si elencano, con la parola da indovinare, in `window.GUESS_IMAGES` dentro `public/questions.js`: per aggiungerne una basta mettere il file nella cartella e una riga nella lista.
 
 ### La risposta sbagliata 🙃 e i power-up ⚡
 
