@@ -161,8 +161,8 @@
   .g-tiles { display: grid; grid-template-columns: repeat(4, 1fr); width: min(100%, 360px, 42vh); aspect-ratio: 1; margin: 0 auto 14px; border-radius: 12px; overflow: hidden; box-shadow: 0 6px 20px #0006; background: #000; }
   .g-tile { background-size: 400% 400%; transition: opacity .5s; }
   .g-tile.cover { background-image: none !important; background: #000; }
-  .g-letters { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-bottom: 12px; }
-  .g-letter { width: 2.4rem; height: 2.8rem; padding: 0; text-align: center; font-size: 1.4rem; font-weight: 900; text-transform: uppercase; border-radius: 10px; }
+  .g-letters { display: flex; flex-wrap: nowrap; justify-content: center; gap: 5px; margin-bottom: 12px; }
+  .g-letter { flex: 1 1 0; min-width: 0; max-width: 2.4rem; width: auto; height: 2.8rem; padding: 0; text-align: center; font-size: 1.4rem; font-weight: 900; text-transform: uppercase; border-radius: 10px; }
   .g-letter.mine { border-color: var(--good); background: color-mix(in srgb, var(--good) 25%, transparent); }
   .g-letter.pub { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, transparent); }
   .g-feedback { text-align: center; font-weight: 700; min-height: 1.4em; margin-top: 10px; }
